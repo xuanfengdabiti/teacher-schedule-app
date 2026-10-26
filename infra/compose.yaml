@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------------
+# PostgreSQL 16 – 教师课表后端开发数据库
+# ---------------------------------------------------------------------------
+# 启动：docker compose -f infra/compose.yaml up -d
+# 停止：docker compose -f infra/compose.yaml down
+# 销毁含数据：docker compose -f infra/compose.yaml down -v
+# ---------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:16.15
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-schedule_dev}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-schedule_dev}"
+      POSTGRES_DB: "${POSTGRES_DB:-schedule_dev}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-schedule_dev} -d ${POSTGRES_DB:-schedule_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:
