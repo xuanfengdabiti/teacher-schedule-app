@@ -1,7 +1,7 @@
 """Cross-row and business validation that does not need database lookups.
 
 Database-dependent checks (foreign keys, source identities and existing-object
-comparisons) are completed in ``apps.imports.services`` after these checks.
+comparisons) are completed under ``apps.imports.projection`` after these checks.
 """
 
 from __future__ import annotations

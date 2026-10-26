@@ -18,13 +18,14 @@ def test_existing_field_difference_is_change_not_supported(school, academic_staf
     preview_batch(first_batch, now=PREVIEW_NOW)
     commit_batch(first_batch, academic_staff)
     log_count = ChangeLog.objects.count()
+    original_name = TeacherProfile.objects.get(teacher_no="0001").formal_name
 
     paths = copy_templates(tmp_path)
     files = {path.name: path for path in paths}
-    rows = read_csv(files["teachers.csv"])
-    rows[1][1] = "修改后的姓名"
-    write_csv(files["teachers.csv"], rows)
-    second_batch = make_batch(school, files=paths)
+    rows = read_csv(files["periods.csv"])
+    rows[1][2] = "08:01"
+    write_csv(files["periods.csv"], rows)
+    second_batch = make_batch(school, files=[files["periods.csv"]])
 
     result = preview_batch(second_batch, now=PREVIEW_NOW)
 
@@ -32,18 +33,18 @@ def test_existing_field_difference_is_change_not_supported(school, academic_staf
         (
             issue
             for issue in result.issues
-            if issue.file == "teachers.csv"
+            if issue.file == "periods.csv"
             and issue.row == 2
-            and issue.field == "formal_name"
+            and issue.field == "start_time"
             and issue.code == "CHANGE_NOT_SUPPORTED_YET"
         ),
         None,
     )
     assert issue is not None
-    assert "B12b" in issue.message
+    assert "B12c" in issue.message
     with pytest.raises(ImportCommitError):
         commit_batch(second_batch, academic_staff)
-    assert TeacherProfile.objects.get(teacher_no="0001").formal_name != "修改后的姓名"
+    assert TeacherProfile.objects.get(teacher_no="0001").formal_name == original_name
     assert ChangeLog.objects.count() == log_count
     assert ClassSession.objects.count() == 40
 

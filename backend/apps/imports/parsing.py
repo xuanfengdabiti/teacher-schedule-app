@@ -247,6 +247,7 @@ class ImportIssue:
     value: str
     code: str
     message: str
+    level: str = "error"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -257,6 +258,7 @@ class ImportIssue:
             "value": self.value,
             "code": self.code,
             "message": self.message,
+            "level": self.level,
         }
 
 
@@ -328,6 +330,7 @@ def make_issue(
     value: Any,
     code: str,
     message: str,
+    level: str = "error",
 ) -> ImportIssue:
     return ImportIssue(
         file=file,
@@ -337,6 +340,7 @@ def make_issue(
         value=truncate_value(value),
         code=code,
         message=message,
+        level=level,
     )
 
 

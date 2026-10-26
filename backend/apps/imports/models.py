@@ -63,8 +63,10 @@ class ImportBatch(TimeStampedUUIDModel):
         null=True,
         blank=True,
     )
+    preview_fingerprint = models.CharField(_("预览状态指纹"), max_length=64, blank=True, default="")
     row_counts = models.JSONField(_("逐文件行统计"), default=dict, blank=True)
-    errors_json = models.JSONField(_("预览错误"), default=list, blank=True)
+    errors_json = models.JSONField(_("预览问题"), default=list, blank=True)
+    change_summary = models.JSONField(_("预览变更明细"), default=dict, blank=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -88,8 +90,8 @@ class ImportBatch(TimeStampedUUIDModel):
         verbose_name_plural = _("导入批次")
         ordering = ("-created_at",)
         constraints = [
-            # B12a only knows how to merge new or fully unchanged objects.
-            # Snapshot scope and missing-object decisions belong to B12b.
+            # B12b still commits merge batches only. Snapshot scope and
+            # missing-object decisions belong to B12c.
             models.CheckConstraint(
                 condition=models.Q(mode=ImportMode.MERGE),
                 name="imp_batch_mode_merge_only",
@@ -104,7 +106,11 @@ class ImportBatch(TimeStampedUUIDModel):
 
     @property
     def has_errors(self) -> bool:
-        return bool(self.errors_json)
+        return any(item.get("level", "error") == "error" for item in (self.errors_json or []))
+
+    @property
+    def warnings(self) -> list[dict]:
+        return [item for item in (self.errors_json or []) if item.get("level") == "warning"]
 
 
 class ImportIdentity(TimeStampedUUIDModel):

@@ -256,15 +256,19 @@ backend/
 │   │   ├── admin.py     # 三个模型只读列表
 │   │   ├── migrations/
 │   │   └── tests/
-│   ├── imports/         # B12a CSV/XLSX 解析、校验、预览、首次/重复导入与身份映射
+│   ├── imports/         # B12a/B12b CSV/XLSX 解析、预览、增量提交与身份映射
 │   │   ├── parsing.py   # 固定模板解析；类型校验和行级错误
 │   │   ├── validation.py # 日期、区间、校历、规则、课次等批内业务校验
-│   │   ├── services.py  # PreviewResult / CommitResult、锁内重预览、事务写入
+│   │   ├── services.py  # 对外薄入口：preview_batch / commit_batch
+│   │   ├── preview.py   # 预览编排、行统计、变更明细和状态指纹
+│   │   ├── commit.py    # 单事务提交编排、锁顺序、版本与日志
+│   │   ├── commit_helpers.py # 字段更新、任课写入和过期/失败结果
+│   │   ├── projection/  # 按实体构建只读导入图（base/terms/teachers/...）
 │   │   ├── storage.py   # MEDIA_ROOT/imports/<batch_id>/ 私有文件
 │   │   ├── forms.py     # Admin 多文件上传表单
 │   │   ├── admin.py     # 上传 -> 自动预览 -> 提交；身份映射只读列表
 │   │   ├── migrations/
-│   │   └── tests/       # 样例、重复导入、XLSX、错误定位、过期预览、Admin
+│   │   └── tests/       # 样例、重复/增量导入、XLSX、错误定位、过期预览、Admin
 │   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态/变更日志
 │       ├── calendar.py  # 教学周与规则展开（纯函数，不查数据库）
 │       ├── changelog.py # ChangeEntry / record_changes，必须由调用方开启事务
@@ -308,7 +312,7 @@ backend/
 
 ## 课次生成
 
-B11 实现“按规则展开课次”；B12a 的导入预演与提交直接复用这里的展开服务和锁顺序，不复制展开算法。字段更新型导入归 B12b。正式调课已由 B31 的统一写入口实现，见下文。
+B11 实现“按规则展开课次”；B12a/B12b 的导入预演与提交直接复用这里的展开服务和锁顺序，不复制展开算法。正式调课已由 B31 的统一写入口实现，见下文。
 
 - Admin 的“学期”列表提供动作 **按规则生成课次**，调用 `apps.scheduling.services.generate_sessions_for_term`；事务内先锁 `SchoolSyncState`，再锁 `Term`。
 - 已存在的生成键（规则 + 原教学日期 + 原起始节）不会被改写，差异只计入 `mismatched` 供后续导入预览处理；新建课次时 `Term.schedule_version` 加 1。
@@ -318,18 +322,18 @@ B11 实现“按规则展开课次”；B12a 的导入预演与提交直接复�
 
 **写入口约定：** 所有修改课次、学期或校历的写入口（B12 导入、B31 正式调课、B22 完成确认、Admin 修改校历）都必须在**已有事务内**调用 `record_changes`，并与对象/版本更新同事务提交。B31 的 `apply_session_change` 是当前正式调课的唯一写入口。`record_changes` 不再单独开启事务；这不是可选的审计日志，遗漏会让 App 增量同步永久跳过该变更。
 
-## 数据导入（B12a）
+## 数据导入（B12a/B12b）
 
-B12a 支持两次明确的提交结果：**全新对象首次导入**，以及**同一批文件完全相同内容的重复导入**（全部行 `unchanged`，不写业务表、不写 ChangeLog）。文件里出现数据库中已有且字段不同的对象时，预览返回稳定错误码 `CHANGE_NOT_SUPPORTED_YET`，整批不可提交；更新、snapshot 和人工决定项属于 B12b。
+B12a 支持**全新对象首次导入**与**同一批文件完全相同内容的重复导入**（全部行 `unchanged`，不写业务表、不写 ChangeLog）。B12b 在此基础上支持不影响课表的 merge 增量：学期展示名、教师资料、教室资料、课程/教学班名称、开课目标学时/负责人/必需设备/任课范围、选课失效日期、占用时间和 coverage 声明。文件里没有出现的对象保持原样；表外字段差异仍报稳定错误码 `CHANGE_NOT_SUPPORTED_YET`，整批不可提交。会改变既有课次的学期日期/周数、节次时间、校历例外、规则内容和 sessions 差异，以及 snapshot 与人工决定项，仍属于 B12c。
 
 ### 管理后台操作
 
 1. 启动 PostgreSQL/Mailpit、执行迁移并创建 Admin 账号。
 2. 进入 **数据导入 → 导入批次 → 上传导入批次**。
 3. 选择学校、填写稳定的 `source_system`（例如 `demo_csv_v1`）和 `source_updated_at`，一次选择本批 CSV/XLSX 文件；来源标识后续不能随意改名。
-4. 保存后自动解析并预览。详情页显示逐文件 `new/unchanged/error` 统计和错误表（文件、工作表、物理行号、字段、原值、code、中文说明）；预览消息同时给出本次预计新建的规则课次数。
-5. 有错误时修正源文件后重新上传；上传后的批次可用“重新预览”按当前数据库重新计算，但已提交批次不能重预览。
-6. 只有 `previewed` 且无错误时显示 **提交导入**。提交在单个事务内先锁 `SchoolSyncState`，再锁学期，重新预览；若文件内容、行统计、错误或 `Term.schedule_version` 已变化，批次回到 `uploaded` 并提示重新预览，不沿用旧判断。
+4. 保存后自动解析并预览。详情页显示逐文件 `new/changed/unchanged/error` 统计、字段级变更明细、任课范围变化、warning 与 error 表（文件、工作表、物理行号、字段、原值、code、中文说明）；预览消息同时给出本次预计新建的规则课次数。
+5. 有错误时修正源文件后重新上传；上传后的批次可用“重新预览”按当前数据库重新计算，但已提交批次不能重预览。warning 不阻止提交，但需要教务人员确认依据。
+6. 只有 `previewed` 且无 error 时显示 **提交导入**。提交在单个事务内先锁 `SchoolSyncState`，再锁学期，重新预览；若文件内容、行统计、问题、相关对象状态或 `Term.schedule_version` 已变化，批次回到 `uploaded` 并提示重新预览，不沿用旧判断。预览状态指纹覆盖变更字段旧值、任课关系与教学计划负责人。
 7. 失败会整体回滚，批次标为 `failed` 并在详情页显示原因；已提交批次保留原文件、统计、提交人和提交时间。
 
 CSV 文件名或 XLSX 工作表名必须是 `terms`、`periods`、`teachers`、`classrooms`、`offerings`、`enrollments`、`calendar_exceptions`、`rules`、`sessions`、`room_blocks`、`resource_unavailability`、`coverage`。CSV 使用 UTF-8（可带 BOM）；XLSX 中编号必须是文本，公式单元格会被拒绝。
@@ -349,11 +353,13 @@ ${DJANGO_MEDIA_ROOT:-backend/var/media}/imports/<batch_uuid>/
 - 12 类固定模板、CSV/XLSX、UTF-8/BOM、逐行类型与长度校验。
 - 批内重复外部编号、外键/学期/节次/校历/任课范围/选课区间/完成量/覆盖声明等校验。
 - 规则课次使用既有 `apps.scheduling.calendar.plan_term_sessions` 在内存中展开；预览与提交共用同一纯函数，不另写第二套周次/校历逻辑。
-- `sessions.csv` 的规则课次必须按 `origin_rule_code + origin_teaching_date + origin_start_period` 精确匹配；三字段全空才是独立课次。具体日期/节次/教室/教师与规则展开不同时，B12a 报 `CHANGE_NOT_SUPPORTED_YET`，不做“差不多”的配对或单次改课。
-- 新建对象逐类写入 `ImportIdentity`；重复导入通过 `(school, source_system, entity_type, external_id)` 识别，不按姓名/课程名/日期猜主键。
-- 提交时调用 `generate_sessions_for_term` 生成规则课次并沿用其锁顺序与 ChangeLog；sessions 状态/完成量变化给课次 `version += 1` 并写 session ChangeLog。教师名册只建 `TeacherProfile`，不创建账号、不修改已关联账号的联系方式。
+- `sessions.csv` 的规则课次必须按 `origin_rule_code + origin_teaching_date + origin_start_period` 精确匹配；三字段全空才是独立课次。具体日期/节次/教室/教师与规则展开不同时，B12b 报 `CHANGE_NOT_SUPPORTED_YET`，不做“差不多”的配对或单次改课。
+- 新建对象逐类写入 `ImportIdentity`；重复导入通过 `(school, source_system, entity_type, external_id)` 识别，不按姓名/课程名/日期猜主键。已存在对象复用映射，不重复建 identity。
+- 提交时调用 `generate_sessions_for_term` 生成规则课次并沿用其锁顺序与 ChangeLog；sessions 状态/完成量变化给课次 `version += 1` 并写 session ChangeLog。教师名册只建 `TeacherProfile`，不创建账号；已关联账号的 phone/wechat/可见范围不被名册覆盖。
+- 教师任课新增、结束或角色变化在同一事务递增 `TeacherProfile.assignment_scope_version`。移除仍有未来 scheduled 课次的教师会整批拒绝；否则有效任课结束于提交当日（学校本地日期），不删除历史任课。负责人变化同步教学计划 owner。
+- Term 名称更新写 `term` ChangeLog；教师名称、教室展示信息、Course/TeachingClass 名称更新会为受影响课次批量写当前 version 的 `session` ChangeLog，不递增课次 version。选课、coverage、占用、目标学时和设备变更不影响 SessionSummary，不写课次日志。
 
-自动化测试直接读取 `templates/import/*.csv`，覆盖 12 文件样例（40 课次、10-05→10-10、4.0 完成学时）、重复导入、XLSX 12 工作表、编号数字/公式拒绝、错误行定位、`CHANGE_NOT_SUPPORTED_YET`、过期预览和 Admin 上传/预览/提交。
+自动化测试直接读取 `templates/import/*.csv`，覆盖 12 文件样例（40 课次、10-05→10-10、4.0 完成学时）、重复导入、XLSX 12 工作表、编号数字/公式拒绝、错误行定位、增量更新、缺行不误删、B30 目标日有效选课、任课范围版本、warning、`CHANGE_NOT_SUPPORTED_YET`、过期预览和 Admin 上传/预览/提交。
 
 ## 课表查询（B13）
 
