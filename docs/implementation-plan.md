@@ -262,8 +262,8 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 教室 | `GET classrooms/`、`GET classrooms/{id}/usage/?date=` | 使用记录及前后课 |
 | 联系 | `GET teachers/{id}/contact/` | 仅返回当前允许显示的字段 |
 | 协查 | `POST inquiries/`、`GET inquiries/`、`POST inquiries/{id}/replies/`、`POST inquiries/{id}/close/` | 请求/回复/结案 |
-| 消息 | `GET notifications/`、`POST notifications/{id}/read/`、`PUT devices/{installation_id}/`、`DELETE devices/{installation_id}/` | 游标分页；绑定/解绑本机推送客户端 ID |
-| 同步 | `GET sync/bootstrap/`、`GET sync/changes/?cursor=` | 当前学期基础数据和后续变动 |
+| 消息 | `GET notifications/?cursor=&limit=`、`POST notifications/{id}/read/`、`PUT devices/{installation_id}/`、`DELETE devices/{installation_id}/` | 不透明游标分页（默认 20、最多 50），返回 `results/next_cursor/unread_count`；已读幂等；设备绑定可跨账号转移，DELETE 只要求登录且幂等 204 |
+| 同步 | `GET sync/bootstrap/`、`GET sync/changes/?cursor=` | `cursor` 为字符串；bootstrap 为当前学期一致快照；changes 最多 500 条日志一页并支持 `reset_required` |
 | 导入 | Admin 上传/预览/提交；将来可加 `imports/` API | 先复用管理后台，不先做移动导入工作台 |
 
 普通列表使用 DRF 标准分页 `{count,next,previous,results}`；消息/同步使用各自定义的 cursor，不要在不同接口随意混用。对象 GET 直接返回对象，避免所有响应再套 `success/data` 多一层。
@@ -275,6 +275,14 @@ B13 课表读取接口按以下方式收敛，旧计划中的 `period-schemes/` 
 - “我的课”“教学班课表”“全部可见课”共用同一批课次，只改变筛选条件；`offerings/` 只提供开课筛选列表，不再嵌套课次接口。
 - 可见范围由 scheduling selector 统一计算：课次实际授课教师、该 offering 的有效任课教师、以及同教学班任一 offering 的有效任课教师可见；`is_mine` 仅表示本人是该课次实际授课教师。有效任课关系指 `effective_until` 为空或晚于学校时区下的今天，`effective_from` 在未来也提前授予可见范围；关系结束后本人已实际授课的课次仍可见。课次详情不在可见范围时返回 404。
 - 周课表要显示“已取消”，因此 `sessions/` 的 `include_cancelled` 默认 true；需要只排有效课时可传 false。
+
+B14 的同步与消息合同：
+
+- `sync/bootstrap/` 在一个 `REPEATABLE READ READ ONLY` 事务中返回当前学期校历、本人可见的 offerings、该学期全部可见课次和 `cursor`（字符串形式的学校 `last_seq`）；没有当前学期时 `term=null` 且列表为空。`cursor` 与数据来自同一快照，客户端不解析 cursor。
+- `sync/changes/?cursor=` 最多返回 500 条日志对应的“当前数据库状态”，同一实体在一页内只出现一次；`next_cursor` 始终推进到本页最后一条日志，即使该对象对当前教师不可见。`reset_required=true` 时 HTTP 仍为 200、列表为空，客户端重新 bootstrap 并保留本地草稿。触发条件为 cursor 非法、超过 `last_seq`，或早于当前保留的最早日志。
+- 消息列表使用服务端生成的不透明游标（created_at + id），默认 20 条、最多 50 条；`unread_count` 是当前未读总数。`POST notifications/{id}/read/` 重复调用返回同一 `read_at`，他人消息 404。
+- `DELETE devices/{installation_id}/` 只要求登录，不要求启用中的教师档案；设备属于账号，身份 pending 或档案停用时退出登录仍必须能解绑。接口幂等返回 204；实现上保留设备行并置 `enabled=false`、清空推送客户端 ID，以保留 PROTECT 的历史投递记录。停用账号时在同一事务内解除该账号全部设备；同一安装 ID 被另一账号绑定时转移给当前账号，避免旧账号消息推送到新用户手机。
+- B14 本切片不实现真实推送通道、投递处理命令、重试和模拟发送（归 B40/B03）；`notify` 只创建站内消息和 `pending` 投递记录，没有真实通道时不把任何记录标记为 sent。所有修改课次、学期、校历的写入口必须在同一事务内调用 `record_changes`。
 
 错误示例：
 

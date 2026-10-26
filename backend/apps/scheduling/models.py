@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -383,7 +384,9 @@ class PersonBlock(TimeStampedUUIDModel):
 class SchoolSyncState(TimeStampedUUIDModel):
     """Sync counter used as the project-wide first write lock.
 
-    B11 only creates and locks this row; ChangeLog allocation belongs to B14.
+    Every sync-relevant write locks this row before updating its objects and
+    appending ``ChangeLog`` rows.  The same lock order is shared by generation
+    and every future importer/rescheduling/completion entry point.
     """
 
     school = models.OneToOneField(
@@ -400,3 +403,53 @@ class SchoolSyncState(TimeStampedUUIDModel):
 
     def __str__(self) -> str:
         return f"{self.school_id} seq={self.last_seq}"
+
+
+class ChangeEntityType(models.TextChoices):
+    SESSION = "session", _("课次")
+    TERM = "term", _("学期")
+
+
+class ChangeLog(models.Model):
+    """Append-only per-school sequence for incremental App synchronisation.
+
+    The row is written in the same transaction as the object/version change.
+    ``change_seq`` is allocated while holding the ``SchoolSyncState`` row lock,
+    so commit order and cursor order cannot run backwards.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    school = models.ForeignKey(
+        School,
+        on_delete=models.PROTECT,
+        related_name="change_logs",
+        verbose_name=_("学校"),
+    )
+    change_seq = models.BigIntegerField(_("变更序号"))
+    entity_type = models.CharField(_("对象类型"), max_length=16, choices=ChangeEntityType.choices)
+    entity_id = models.UUIDField(_("对象 ID"))
+    offering = models.ForeignKey(
+        CourseOffering,
+        on_delete=models.PROTECT,
+        related_name="change_logs",
+        verbose_name=_("课程开设"),
+        null=True,
+        blank=True,
+    )
+    version = models.PositiveIntegerField(_("对象版本"))
+    tombstone = models.BooleanField(_("已删除标记"), default=False)
+    changed_at = models.DateTimeField(_("变更时间"), auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("同步变更")
+        verbose_name_plural = _("同步变更")
+        ordering = ("school", "change_seq")
+        constraints = [
+            models.UniqueConstraint(fields=["school", "change_seq"], name="sch_changelog_school_seq_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["school", "change_seq"], name="sch_changelog_school_seq_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.school_id} #{self.change_seq} {self.entity_type}:{self.entity_id}"

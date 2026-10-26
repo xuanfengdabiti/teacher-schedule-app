@@ -13,6 +13,7 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from apps.academics.models import ContactVisibility, School, TeacherProfile, TeacherStatus
 from apps.accounts.models import TeacherClaim, TeacherClaimStatus, normalize_user_email
 from apps.common.exceptions import TeacherDisabled, TeacherNotLinked
+from apps.notifications.services import disable_device_bindings
 
 if TYPE_CHECKING:
     from apps.accounts.models import User
@@ -221,7 +222,7 @@ def reject_teacher_claim(claim: TeacherClaim, *, decided_by: User, note: str = "
 
 
 def deactivate_user(user: User) -> None:
-    """Disable an account, revoke all refresh tokens and clear contacts."""
+    """Disable an account, revoke tokens, clear contacts and unbind devices."""
     user_model = get_user_model()
     with transaction.atomic():
         locked_user = user_model.objects.select_for_update().get(pk=user.pk)
@@ -229,6 +230,7 @@ def deactivate_user(user: User) -> None:
         locked_user.save(update_fields=["is_active"])
 
         revoke_all_refresh_tokens(locked_user)
+        disable_device_bindings(locked_user)
 
         TeacherProfile.objects.filter(user=locked_user).update(
             phone="",
