@@ -12,6 +12,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone as django_timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.academics.models import TeacherStatus
 from apps.scheduling.models import ClassSession, SessionStatus
@@ -47,6 +48,10 @@ def _link_user(teacher, email: str):
     return user
 
 
+def _authenticate(client: APIClient, user) -> None:
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {AccessToken.for_user(user)}")
+
+
 def _url(session: ClassSession) -> str:
     return f"/api/v1/sessions/{session.id}/reschedule-options/"
 
@@ -73,14 +78,14 @@ class TestAuthenticationAndPermissions:
     def test_unauthenticated_request_is_rejected(self, api_client, generated_demo) -> None:
         response = api_client.post(_url(_source(generated_demo)), {}, format="json")
 
-        # SessionAuthentication with IsAuthenticated has no WWW-Authenticate
-        # header, so DRF returns 403 rather than 401.
-        assert response.status_code == 403
+        # JWTAuthentication advertises a Bearer challenge, so DRF returns 401.
+        assert response.status_code == 401
+        assert response["WWW-Authenticate"].startswith("Bearer")
 
     def test_teacher_outside_session_and_assignment_gets_403(self, api_client, generated_demo) -> None:
         outsider = factories.make_teacher(generated_demo.school, "0003", "非任课示例教师")
         user = _link_user(outsider, "outsider@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
 
         response = api_client.post(_url(_source(generated_demo)), {}, format="json")
 
@@ -88,15 +93,44 @@ class TestAuthenticationAndPermissions:
 
     def test_user_without_teacher_profile_gets_403(self, api_client, generated_demo) -> None:
         user = get_user_model().objects.create_user(email="no-profile@example.invalid", password="test-pass-123")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
 
         response = api_client.post(_url(_source(generated_demo)), {}, format="json")
 
         assert response.status_code == 403
+        assert response.data["code"] == "TEACHER_NOT_LINKED"  # type: ignore[index]
+        assert response.data["field_errors"] == {}  # type: ignore[index]
+
+    @pytest.mark.parametrize(
+        ("is_active", "teacher_status"),
+        [
+            (False, TeacherStatus.ACTIVE),
+            (True, TeacherStatus.DISABLED),
+        ],
+    )
+    def test_disabled_teacher_profile_gets_403(
+        self,
+        api_client,
+        generated_demo,
+        is_active,
+        teacher_status,
+    ) -> None:
+        teacher = generated_demo.teachers["0002"]
+        user = _link_user(teacher, "disabled-teacher@example.invalid")
+        teacher.is_active = is_active
+        teacher.teacher_status = teacher_status
+        teacher.save(update_fields=["is_active", "teacher_status", "updated_at"])
+        _authenticate(api_client, user)
+
+        response = api_client.post(_url(_source(generated_demo)), {}, format="json")
+
+        assert response.status_code == 403
+        assert response.data["code"] == "TEACHER_DISABLED"  # type: ignore[index]
+        assert response.data["field_errors"] == {}  # type: ignore[index]
 
     def test_missing_session_returns_404(self, api_client, generated_demo) -> None:
         user = _link_user(generated_demo.teachers["0002"], "session-teacher@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
 
         response = api_client.post(
             f"/api/v1/sessions/{uuid4()}/reschedule-options/",
@@ -115,7 +149,7 @@ class TestBusinessErrors:
         source = _source(generated_demo)
         _complete(source, generated_demo.teachers["0002"])
         user = _link_user(generated_demo.teachers["0002"], "completed-source@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
 
         response = api_client.post(
             _url(source),
@@ -133,7 +167,7 @@ class TestBusinessErrors:
 
     def test_equal_range_returns_400_with_code(self, api_client, generated_demo) -> None:
         user = _link_user(generated_demo.teachers["0002"], "invalid-range@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
 
         response = api_client.post(
             _url(_source(generated_demo)),
@@ -152,7 +186,7 @@ class TestBusinessErrors:
 class TestResponseContract:
     def test_default_request_uses_school_today_and_fourteen_days(self, api_client, generated_demo) -> None:
         user = _link_user(generated_demo.teachers["0002"], "default-range@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
         fixed_now = datetime(2026, 10, 26, 7, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
         with patch("apps.scheduling.views.timezone.now", return_value=fixed_now):
@@ -167,7 +201,7 @@ class TestResponseContract:
 
     def test_normal_request_returns_typed_options_and_iso_times(self, api_client, generated_demo) -> None:
         user = _link_user(generated_demo.teachers["0002"], "normal-response@example.invalid")
-        api_client.force_login(user)
+        _authenticate(api_client, user)
         session = _source(generated_demo)
 
         response = api_client.post(

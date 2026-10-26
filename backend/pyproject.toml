@@ -4,8 +4,11 @@ version = "0.1.0"
 description = "教师课程表 App 后端服务"
 requires-python = ">=3.12"
 dependencies = [
+    "dj-rest-auth>=7.2.0",
     "django>=5.2,<5.3",
+    "django-allauth[socialaccount]>=65.20.1",
     "djangorestframework>=3.18.3",
+    "djangorestframework-simplejwt>=5.5.1",
     "drf-spectacular>=0.30.0",
     "psycopg[binary]>=3.0",
 ]

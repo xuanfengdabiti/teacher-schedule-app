@@ -1,0 +1,12 @@
+{% autoescape off %}你好：
+
+请验证你的教师课程表邮箱。请在 App 内打开下面的验证链接；如果在另一台设备上打开邮件，也可以复制验证码（key）后回到 App 的验证页面粘贴。
+
+App 验证链接：
+{{ app_link_base }}verify-email?key={{ key|urlencode }}
+
+可复制验证码（key）：
+{{ key }}
+
+验证码 3 天内有效。如果这不是你的操作，请忽略本邮件。
+{% endautoescape %}
