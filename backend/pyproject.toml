@@ -1,0 +1,36 @@
+[project]
+name = "teacher-schedule-backend"
+version = "0.1.0"
+description = "教师课程表 App 后端服务"
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.2,<5.3",
+    "djangorestframework>=3.18.3",
+    "drf-spectacular>=0.30.0",
+    "psycopg[binary]>=3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-django>=4.14.0",
+    "ruff>=0.17.2",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = [".venv", ".git", "__pycache__", "migrations"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+addopts = "-v --tb=short"
+testpaths = ["apps", "config"]
