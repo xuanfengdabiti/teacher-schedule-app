@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {{ media }}
+{% endblock %}
+
+{% block breadcrumbs %}
+  <div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; {% translate 'Upload import batch' %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <h1>上传导入批次</h1>
+  <p>
+    一次上传同一学校、同一来源的一组文件。支持 UTF-8 CSV（可带 BOM）与 XLSX；
+    表头固定，CSV 文件名或 XLSX 工作表名必须与 12 个规范名称一致。
+  </p>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <fieldset class="module aligned">
+      {{ form.as_p }}
+    </fieldset>
+    <div class="submit-row">
+      <input type="submit" value="上传并预览" class="default">
+      <a href="{% url 'admin:imports_importbatch_changelist' %}" class="button cancel-link">取消</a>
+    </div>
+  </form>
+  <p class="help">
+    原始文件保存到部署私有目录；Django Admin 不提供文件下载 URL。
+    当前仅支持 merge 的首次导入或完全相同内容重复导入。
+  </p>
+{% endblock %}
