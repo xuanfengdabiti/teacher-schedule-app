@@ -66,6 +66,7 @@ uv run --env-file .env python manage.py runserver
 
 - API：<http://127.0.0.1:8000/api/v1/health/>
 - OpenAPI：<http://127.0.0.1:8000/api/v1/schema/>
+- 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - Admin：<http://127.0.0.1:8000/admin/>
 
 ## 运行检查命令
@@ -76,6 +77,12 @@ uv run --env-file .env ruff check .
 uv run --env-file .env python manage.py check
 uv run --env-file .env python manage.py makemigrations --check --dry-run
 uv run --env-file .env pytest
+```
+
+大规模性能测试默认不运行（`pyproject.toml` 中 `addopts` 排除了 `perf` marker）。单独运行：
+
+```bash
+uv run --env-file .env pytest -m perf
 ```
 
 `ruff` 与 `pytest` 本身不读环境变量，但统一加 `--env-file` 可让命令形式一致；`manage.py`、`pytest`（经 pytest-django 加载 Django settings）必须有这些变量。
@@ -124,6 +131,9 @@ backend/
 │   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态
 │       ├── calendar.py  # 教学周与规则展开（纯函数，不查数据库）
 │       ├── services.py  # 课次生成事务服务（统一锁顺序）
+│       ├── reschedule_options.py # 只读调课候选、冲突和覆盖检查
+│       ├── serializers.py        # 调课候选请求/响应/错误 schema
+│       ├── views.py     # 调课候选查询接口与课次权限
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期 fixture 与生成/约束/Admin 测试
@@ -141,6 +151,12 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 - 已存在的生成键（规则 + 原教学日期 + 原起始节）不会被改写，差异只计入 `mismatched` 供后续导入预览处理；新建课次时 `Term.schedule_version` 加 1。
 - `ClassSession` 在 Admin 中仅可查看（不能新增、修改、删除）：完成量更正需要原因并走 B22 教学服务，正式课表变更走 B31 统一服务。
 - 校历 `cancel`/`custom`/`replace` 目标日上的基础课次保留为 `cancelled`，不删除。
+
+## 调课候选查询（B30）
+
+`POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的 `TeachingAssignment` 教师可查询；未登录或非任课教师返回 403，课次不存在返回 404。
+
+请求字段：`date_from`、`date_until`（半开区间；默认今天至 `date_from + 14 天`）、`allowed_block_codes`、`classroom_ids`、`allow_weekend`。源课次非 `scheduled` 返回 409 `SESSION_NOT_RESCHEDULABLE`；日期区间无效返回 400 `INVALID_DATE_RANGE`，两者都使用 `{"code", "detail", "field_errors"}`。OpenAPI 合同见 `/api/v1/schema/`。
 
 ## 常用开发命令
 

@@ -3,9 +3,15 @@
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView
 
+from apps.scheduling.views import reschedule_options
 from config.views import health
 
 urlpatterns = [
     path("health/", health, name="api-health"),
     path("schema/", SpectacularAPIView.as_view(), name="api-schema"),
+    path(
+        "sessions/<uuid:session_id>/reschedule-options/",
+        reschedule_options,
+        name="session-reschedule-options",
+    ),
 ]

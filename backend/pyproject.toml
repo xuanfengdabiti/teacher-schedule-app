@@ -32,5 +32,6 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not perf'"
+markers = ["perf: 大规模性能测试；默认不运行，使用 `pytest -m perf` 单独执行"]
 testpaths = ["apps", "config"]
