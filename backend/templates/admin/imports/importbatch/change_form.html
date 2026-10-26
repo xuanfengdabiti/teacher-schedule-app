@@ -1,0 +1,92 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block submit_buttons_top %}{% endblock %}
+{% block submit_buttons_bottom %}{% endblock %}
+
+{% block object-tools %}
+  {{ block.super }}
+  {% if original %}
+    <ul class="object-tools">
+      {% if original.status != "committed" %}
+        <li>
+          <form method="post" action="{% url 'admin:imports_importbatch_preview' original.pk %}" style="display:inline">
+            {% csrf_token %}
+            <button type="submit" class="button">重新预览</button>
+          </form>
+        </li>
+      {% endif %}
+    </ul>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  {{ block.super }}
+
+  {% if original %}
+    <div class="module aligned" style="margin-top: 20px">
+      <h2>预览统计</h2>
+      {% if original.row_counts %}
+        <table style="width:100%">
+          <thead>
+            <tr><th>文件</th><th>new</th><th>unchanged</th><th>error</th></tr>
+          </thead>
+          <tbody>
+            {% for file_name, counts in original.row_counts.items %}
+              <tr>
+                <td>{{ file_name }}</td>
+                <td>{{ counts.new }}</td>
+                <td>{{ counts.unchanged }}</td>
+                <td>{{ counts.error }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p>尚未生成预览统计。</p>
+      {% endif %}
+
+      {% if original.errors_json %}
+        <h2 style="margin-top:20px">错误与待处理项</h2>
+        <p>存在错误时整批不能提交。请按文件、行号和字段修正后重新上传。</p>
+        <div style="overflow-x:auto">
+          <table style="width:100%; min-width: 900px">
+            <thead>
+              <tr>
+                <th>文件</th><th>工作表</th><th>行</th><th>字段</th>
+                <th>原值</th><th>code</th><th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for error in original.errors_json %}
+                <tr>
+                  <td>{{ error.file|default:"—" }}</td>
+                  <td>{{ error.sheet|default:"—" }}</td>
+                  <td>{{ error.row }}</td>
+                  <td>{{ error.field|default:"—" }}</td>
+                  <td><code>{{ error.value|default:"—" }}</code></td>
+                  <td><code>{{ error.code }}</code></td>
+                  <td>{{ error.message }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if original.status == "previewed" and not original.errors_json %}
+      <div class="submit-row" style="margin-top: 20px">
+        <form method="post" action="{% url 'admin:imports_importbatch_commit' original.pk %}">
+          {% csrf_token %}
+          <input type="submit" class="default" value="提交导入">
+        </form>
+        <p class="help">
+          提交前会在数据库锁内重新预览；若数据或学期课表版本已变化，会要求重新预览。
+        </p>
+      </div>
+    {% elif original.status == "uploaded" %}
+      <p class="help">该批次需要重新预览后才能提交。</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

@@ -127,6 +127,7 @@ INSTALLED_APPS = [
     "apps.classrooms",
     "apps.scheduling",
     "apps.notifications",
+    "apps.imports",
 ]
 
 MIDDLEWARE = [
@@ -268,6 +269,13 @@ SPECTACULAR_SETTINGS = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "static/"
+
+# Imported source files live under a private local directory.  MEDIA_URL is
+# intentionally not configured or routed: Django Admin serves the audit view,
+# not the raw uploads.  A deployment can point DJANGO_MEDIA_ROOT at a private
+# mounted volume.
+_media_root = os.environ.get("DJANGO_MEDIA_ROOT", "").strip()
+MEDIA_ROOT = Path(_media_root) if _media_root else BASE_DIR / "var" / "media"
 
 # Password validation (Django defaults)
 AUTH_PASSWORD_VALIDATORS = [

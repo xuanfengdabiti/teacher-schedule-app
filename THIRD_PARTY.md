@@ -1,6 +1,6 @@
 # 第三方复用记录
 
-截至 2026-10-26，本仓库包含项目文档、配置与虚构模板，以及 `backend/` 的后端工程：教务数据模型、课次生成/调课候选，以及账号/JWT、教师身份关联和 `me` 的后端切片。未复制第三方 App 源码；候选及其许可证核查见[开源调研](docs/open-source-research.md)。
+截至 2026-10-26，本仓库包含项目文档、配置与虚构模板，以及 `backend/` 的后端工程：教务数据模型、课次生成/调课候选、B12a CSV/XLSX 导入，以及账号/JWT、教师身份关联和 `me` 的后端切片。未复制第三方 App 源码；候选及其许可证核查见[开源调研](docs/open-source-research.md)。
 
 ## 默认候选
 
@@ -22,6 +22,7 @@ Flutter、Riverpod、go_router、Dio、Drift、flutter_secure_storage、calendar
 | django-allauth | https://github.com/pennersr/django-allauth | 65.20.1 | MIT | uv，`socialaccount` extra | 邮箱账号、验证邮件、密码重置流程 |
 | djangorestframework-simplejwt | https://github.com/jazzband/djangorestframework-simplejwt | 5.5.1 | MIT | uv | JWT access/refresh 与 blacklist |
 | drf-spectacular | https://github.com/tfranzel/drf-spectacular | 0.30.0 | BSD-3-Clause | uv | OpenAPI schema 生成 |
+| openpyxl | https://openpyxl.readthedocs.io/ | 3.1.5 | MIT | uv | B12a XLSX 只读解析（`read_only=True, data_only=False`） |
 | psycopg | https://psycopg.org/ | 3.3.6 | LGPL-3.0-only | uv | PostgreSQL 数据库适配器 |
 | psycopg-binary | https://psycopg.org/ | 3.3.6 | LGPL-3.0-only | uv | psycopg 的二进制分发（避免需要编译 libpq） |
 
@@ -35,7 +36,7 @@ Flutter、Riverpod、go_router、Dio、Drift、flutter_secure_storage、calendar
 
 `django-allauth[socialaccount]` 的 extra 仅用于满足 dj-rest-auth 7.2.0 注册模块对
 allauth SocialAccount 的导入依赖；项目未配置社交登录提供商，也未暴露社交登录端点。
-传递依赖不在此表重复记录，精确版本以 `backend/uv.lock` 为准。
+`openpyxl` 的传递依赖 `et-xmlfile 2.0.0`（MIT）仅用于读取 XLSX 内部 XML。没有引入 pandas、tablib、django-import-export 或其他表格/导入框架。传递依赖不在此表重复记录，精确版本以 `backend/uv.lock` 为准。
 
 普通包依赖锁版本；复制源码另记原文件路径、修改范围，保留版权和 NOTICE。无明确许可证的仓库不复制；GPL 候选当前仅作产品参考，若未来选其源码需明确项目许可证与分发方式。
 
