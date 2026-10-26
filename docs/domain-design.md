@@ -78,7 +78,7 @@
 | Classroom / RoomBlock / PersonBlock | 教室：school_id+campus+building+room_no 唯一，capacity≥0，equipment 为代码集合。RoomBlock 索引 room_id+start_at，检查 end_at>start_at。PersonBlock 为 teacher_id/student_id 两个可空 FK 且恰好填写一个，索引分别为 teacher_id+start_at、student_id+start_at；同样检查时间正长 |
 | ScheduleRule / ClassSession / SessionTeacher | Rule：offering_id、weeks 列表、weekday、period_start/end、classroom_id、source_key；源 key 在来源范围内唯一。Session：offering_id、start_at、end_at、origin_teaching_date、origin_period、rule_id 可空、classroom_id、status、planned_hours≥0、actual_hours、completed_by_teacher_id/at、completion_ref、recorded_by_user_id、version；scheduled 的 actual_hours 为空，completed 必填非负量和教师确认来源，cancelled 为 0；检查 end_at>start_at；索引 offering_id+start_at、classroom_id+start_at。规则生成键 rule_id+origin_teaching_date+origin_period 唯一且调课后不变；SessionTeacher：session_id+teacher_id 唯一，索引 teacher_id+session_id |
 | SessionChange / RescheduleRequest | Change：session_id、request_id 可空、before_json、after_json、session_version、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_date、target_start_period/end_period、target_start_at/end_at、target_classroom_id、reason、base_session_version、checked_schedule_version、check_summary、status、needs_verification、decision_by/at/ref/note、forced_override；索引 applicant_id+created_at、status+created_at；同一课次+申请人的 submitted 申请唯一；状态迁移与正式生效统一服务 |
-| TeachingNote / Handoff | Note：session_id+author_id 唯一，draft_covered/unfinished/next_plan 与 published_covered/unfinished/next_plan 分开、published_at、published_version、version；published_at 与 published_version 同时为空或非空；保存草稿不覆盖已发布快照。Handoff：offering_id、note_id/version 可空、sender_id、recipient_id、target_session_id 可空、content_snapshot、status、read_at、acknowledged_at；索引 recipient_id+status+created_at，acknowledged 必须有确认时间；一条交接一个接收人 |
+| TeachingNote / Handoff | Note：session_id+author_id 唯一，draft_covered/unfinished/next_plan 与 published_covered/unfinished/next_plan 分开、published_at、published_version、version；published_at 与 published_version 同时为空或非空；保存草稿不覆盖已发布快照。Handoff：offering_id、note_id/version 可空、sender_id、recipient_id、source_session_id/target_session_id 可空、content_snapshot（≤5000）、status=pending/acknowledged/withdrawn、read_at、acknowledged_at、withdrawn_at；sender≠recipient，acknowledged 必须有确认时间，withdrawn 必须有撤回时间，note 与 note_published_version 同为空或同非空；索引 recipient_id+status+created_at、sender_id+created_at；一条交接一个接收人 |
 | TeachingPlan / PlanItem / SessionProgress | Plan：offering_id 一对一、owner_id、baseline_version、status、version。Item：plan_id+position 唯一，title、planned_hours≥0、due_date 或 due_session_id、baseline_version。Progress：session_id+plan_item_id 唯一、actual_hours≥0；索引 plan_item_id。每次完成确认事务校验分配和≤课次实际学时、专题与课次同属一个 Offering |
 | Inquiry / InquiryRecipient / InquiryReply | Inquiry：initiator_id、classroom_id、from_at、to_at、item_description、status、closed_at、close_note；索引 initiator_id+status+created_at，检查 to_at>from_at。Recipient：inquiry_id+teacher_id 唯一，related_session_ids 快照。Reply：inquiry_id、author_id、result=not_seen/in_custody/other、body、created_at；索引 inquiry_id+created_at。允许同一接收人补充回复，每条回复追加保存；只有发起人结案 |
 | ImportBatch / ImportIdentity / DataCoverage | Batch：source_system、term_id、kind、mode、scope_json、file_hash、status=uploaded/previewed/committed/failed、preview_base_schedule_version、row_counts、errors_json、committed_by/at；索引 term_id+created_at。Identity：school_id+source_system+entity_type+external_id 唯一。Coverage：school_id、term_id、kind、scope_key、from_date、until_date、completeness、source_updated_at、batch_id，索引 term_id+kind+scope_key+from_date；覆盖包含目标范围且标记完整才可证明该类数据完整，不能以“无记录”代替 complete |
@@ -168,10 +168,11 @@
 发布记录后可选择下一位任课教师并生成交接，预填未完成内容和下次计划，发送前可以编辑。系统默认找同一课程开设的下一课次教师，允许在该课程任课教师中改选。
 
 - 交接是明确发送的对象，有发送者、接收者、关联课次和确认状态；普通教学记录浏览不自动等于交接确认。
+- 接收人只能是同一 `CourseOffering` 的当前有效任课教师（`effective_until` 为空或晚于学校时区今天，`effective_from` 不限制），且不能是发送人；同一教学班其他课程的教师不能作为该交接的接收人。发送人必须是该 offering 的当前有效任课教师，或来源课次的 `SessionTeacher`。接收人没有关联账号时只落站内消息。一次交接只对应一个接收人，选择多位教师时生成多条独立交接。
 - 接收人点击“确认收到”才写确认时间；显示已读不代表同意内容。
-- 交接一经发送就保存内容快照及原备注发布版本，不随草稿或发布版本修改而变化；发送者需要补充说明或发送新交接，保留前文。一次交接只对应一个接收人，选择多位教师时生成多条独立交接。
-- 调课或换教师后，系统提示发送者核对待确认交接的接收人，不自动把已有交接转给另一个人。
-- 交接可以无附件；首版不做富文本协作、实时共同编辑、审批会签。
+- 交接一经发送就保存内容快照及原备注发布版本，不随草稿或发布版本修改而变化；发送者需要补充说明或发送新交接，保留前文。关联备注只能选发送人本人在来源课次上已发布的备注，未发布、他人或跨 offering 的备注都不能关联。
+- 调课或换教师后，系统提示发送者核对待确认交接的接收人，不自动把已有交接转给另一个人。实现方式：正式调课生效后，在同一事务内对 `target_session` 为该课次且仍为 `pending` 的交接，向发送人发一条 `handoff_check` 站内消息（事件键含交接 ID 和 change ID），说明目标课次已调整到新时间并请其核对接收人；接收人和交接状态都不改变，同一 change 重放不重复消息。已确认或已撤回的交接不提示。
+- 交接可以无附件；首版不做富文本协作、实时共同编辑、审批会签。交接不写入同步 ChangeLog，发送、已读、确认和撤回都在线完成。
 
 ## 6. 教学计划与学时
 

@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from django.urls import path
 
+from apps.teaching.handoff_views import (
+    HandoffAcknowledgeView,
+    HandoffDetailView,
+    HandoffListCreateView,
+    HandoffPrefillView,
+    HandoffReadView,
+    HandoffWithdrawView,
+)
 from apps.teaching.views import MyNotePublishView, MyNoteView, SessionNotesView
 
 urlpatterns = [
@@ -14,4 +22,14 @@ urlpatterns = [
         MyNotePublishView.as_view(),
         name="session-note-publish",
     ),
+    path("handoffs/prefill/", HandoffPrefillView.as_view(), name="handoff-prefill"),
+    path("handoffs/", HandoffListCreateView.as_view(), name="handoff-list"),
+    path("handoffs/<uuid:handoff_id>/", HandoffDetailView.as_view(), name="handoff-detail"),
+    path("handoffs/<uuid:handoff_id>/read/", HandoffReadView.as_view(), name="handoff-read"),
+    path(
+        "handoffs/<uuid:handoff_id>/acknowledge/",
+        HandoffAcknowledgeView.as_view(),
+        name="handoff-acknowledge",
+    ),
+    path("handoffs/<uuid:handoff_id>/withdraw/", HandoffWithdrawView.as_view(), name="handoff-withdraw"),
 ]

@@ -82,6 +82,7 @@ uv run --env-file .env python manage.py runserver
 - 课表：`GET /api/v1/sessions/`、`GET /api/v1/sessions/{id}/`
 - 教学班开课：`GET /api/v1/offerings/`
 - 教学备注：`GET /api/v1/sessions/{id}/notes/`、`PUT /api/v1/sessions/{id}/notes/mine/`、`POST /api/v1/sessions/{id}/notes/mine/publish/`（详见下文）
+- 教学交接：`GET /api/v1/handoffs/prefill/?source_session_id=`、`POST/GET /api/v1/handoffs/`、`GET /api/v1/handoffs/{id}/`、`POST /api/v1/handoffs/{id}/read/`、`POST /api/v1/handoffs/{id}/acknowledge/`、`POST /api/v1/handoffs/{id}/withdraw/`（详见下文）
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - 调课申请：`POST/GET /api/v1/reschedule-requests/`、`POST /api/v1/reschedule-requests/{id}/submit/`、`POST /api/v1/reschedule-requests/{id}/withdraw/`（详见下文）
 - 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
@@ -260,15 +261,19 @@ backend/
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
-│   └── teaching/        # B20 教学备注、发布快照、客户端幂等记录
-│       ├── models.py    # TeachingNote / ClientMutation
+│   └── teaching/        # B20 教学备注、B21 交接、客户端幂等记录
+│       ├── models.py    # TeachingNote / Handoff / ClientMutation
 │       ├── selectors.py # 备注读写权限、上次已完成课次与可读范围
-│       ├── services.py  # 保存草稿/发布事务、版本冲突与幂等
-│       ├── serializers.py # API/sync JSON 合同
+│       ├── services.py  # 备注保存草稿/发布事务、版本冲突与幂等
+│       ├── serializers.py # 备注 API/sync JSON 合同
 │       ├── views.py     # /sessions/{id}/notes/ 三类接口
+│       ├── handoffs.py  # B21 交接创建/已读/确认/撤回、预填与调课提示
+│       ├── handoff_serializers.py # 交接 API 合同与 JSON payload
+│       ├── handoff_views.py # /handoffs/ 预填/列表/详情/状态动作
+│       ├── admin.py     # 交接只读列表（筛选状态、搜索课程/教师）
 │       ├── urls.py
 │       ├── migrations/
-│       └── tests/       # A10/A18/A23/A25、权限、并发与同步查询数
+│       └── tests/       # A10/A14/A18/A23/A25、交接规则/并发/调课提示、同步查询数
 ├── manage.py
 ├── pyproject.toml
 ├── uv.lock
@@ -398,6 +403,50 @@ ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NO
 `ClientMutation` 同事务提交。自动重试只保存 draft，不会自动 publish，也不改变课次
 `status/actual_hours/version`。
 
+## 教学交接（B21 后端）
+
+以下接口均需 JWT，并先通过 `require_active_teacher`；未关联账号返回 403
+`TEACHER_NOT_LINKED`，档案停用返回 403 `TEACHER_DISABLED`。交接不写 ChangeLog，也不进入
+离线同步；发送、已读、确认、撤回都以在线服务端结果为准。每条交接只对应一个接收人，选多位教师时
+生成多条独立记录。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/handoffs/prefill/?source_session_id=` | 只读发送表单预填：`recipients`（该 offering 当前有效任课教师，排除本人，含 `is_suggested`）、`suggested_target_session`、`content`、`note_id`、`note_published_version`。不创建任何记录。 |
+| `POST /api/v1/handoffs/` | body `offering_id`、`recipient_ids`（1–10 个）、`content`、`source_session_id`、`target_session_id`、`note_id`（后三者可空）。201 返回创建的交接列表；每个接收人一条 `pending`。 |
+| `GET /api/v1/handoffs/?box=inbox\|sent&status=` | `inbox` 为本人收到、`sent` 为本人发出，默认 inbox；`status` 可选。created_at 倒序，DRF 标准分页。 |
+| `GET /api/v1/handoffs/{id}/` | 仅发送人或接收人可看，其他人 404；GET 不写 `read_at`。 |
+| `POST /api/v1/handoffs/{id}/read/` | 仅接收人；只写 `read_at`，status 仍为 pending。重复调用返回同一时间。 |
+| `POST /api/v1/handoffs/{id}/acknowledge/` | 仅接收人；pending → acknowledged，写 `acknowledged_at`，`read_at` 为空时一并写入，并给发送人发 `handoff_acknowledged`。重复确认幂等且不重复通知；已撤回 409 `HANDOFF_WITHDRAWN`。 |
+| `POST /api/v1/handoffs/{id}/withdraw/` | 仅发送人；只能撤回 pending。已确认 409 `HANDOFF_ALREADY_ACKNOWLEDGED`，重复撤回幂等；撤回不发消息。 |
+
+发送规则：发送人必须是该 offering 当前有效任课教师，或来源课次的 `SessionTeacher`；接收人必须是
+该 offering 当前有效任课教师（`effective_until` 为空或晚于今天）且不能是发送人，接收人无账号也可
+发送。来源/目标课次必须属于该 offering。关联备注只能是发送人本人在来源课次上已发布的备注，保存当时
+的 `published_version`；`content_snapshot` 以发送内容为准，之后修改或重新发布原备注不会改变交接
+（A14）。任一接收人不合法时整体 400，不创建部分交接；接收人自动去重。
+
+`GET handoffs/prefill/` 的 `content` 只取本人在来源课次上已发布备注的 `published_unfinished` 和
+`published_next_plan`，按“未完成内容：”“下次计划：”两段拼接；没有发布备注或两段都为空时为空字符串，
+但有发布备注时仍返回其 `note_id`/`note_published_version`。
+`is_suggested`/`suggested_target_session` 取同一 offering 中来源课次之后第一个 `scheduled` 课次的
+`SessionTeacher`（排除本人）；建议对象若已不是当前有效任课教师，只返回 `suggested_target_session`，
+不会扩大 `recipients` 的合法范围。
+
+状态变更都在事务内对交接行 `select_for_update`，因此并发确认/撤回只有一方成功，另一方得到
+409。错误体统一 `{code, detail, field_errors}`：400 `VALIDATION_ERROR`/`INVALID_RECIPIENT`/
+`INVALID_NOTE`/`INVALID_SESSION`，403 `NOT_OFFERING_TEACHER`/`NOT_HANDOFF_SENDER`/
+`NOT_HANDOFF_RECIPIENT`，404 `NOT_FOUND`，409 `HANDOFF_WITHDRAWN`/
+`HANDOFF_ALREADY_ACKNOWLEDGED`。
+
+正式调课通过 `apps.scheduling.changes.apply_session_change` 生效后，会在同一事务内调用
+`apps.teaching.handoffs.notify_pending_handoffs_for_moved_session`：对 `target_session` 为该课次
+且仍 pending 的交接，向发送人发 `handoff_check` 消息，事件键 `handoff:{id}:check:{change.id}`，
+说明目标课次新时间并请其核对接收人。接收人与交接状态都不变，同一 change 重放不重复消息。
+`apps.scheduling.changes` 在函数内局部导入该服务，避免 `scheduling` 与 `teaching` 的模块级循环导入。
+
+Admin 的“教学交接”列表只读，可按状态筛选并按课程/教师搜索，供教务查看确认状态；不提供直接修改。
+
 ## 离线同步（B14）
 
 两个接口均需 JWT 且账号关联启用中的教师档案。
@@ -431,6 +480,10 @@ ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NO
 | `POST /api/v1/notifications/{id}/read/` | 标记已读；重复调用返回同一 `read_at`，他人消息 404。 |
 | `PUT /api/v1/devices/{installation_id}/` | 新建或更新本机设备；字段 `provider`、`provider_client_id`、`platform`、`enabled`（默认 true），同时更新 `last_seen_at`。同一 installation ID 属于其他账号时转移给当前账号。 |
 | `DELETE /api/v1/devices/{installation_id}/` | 只要求登录，不要求启用中的教师档案（设备属于账号；pending 或 TEACHER_DISABLED 时退出登录仍可解绑）。幂等注销本机设备：保留行、置 `enabled=false` 并清空 `provider_client_id`，返回 204；不存在或非本人同样 204。保留行是因为历史 `DeliveryAttempt` 使用 `PROTECT`，需保留投递审计。 |
+
+交接相关消息使用 `handoff_received`（收到交接）、`handoff_acknowledged`（接收人确认）和
+`handoff_check`（目标课次调课后请发送人核对接收人）；事件键分别包含交接 ID，调课核对还包含
+change ID，因此在同一业务事务重试或重放时不会重复建消息。
 
 `apps.notifications.services.notify` 必须在业务事务内调用：recipient + event_key 已存在时返回
 `None`，不重复创建；新消息会为该教师账号下每个 enabled 且账号 `is_active=true` 的设备创建一条
