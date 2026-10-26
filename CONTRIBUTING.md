@@ -75,7 +75,7 @@ M0 创建后按锁定工具链运行；路径以实际脚手架为准：
 | Flutter | `dart format --output=none --set-exit-if-changed .`、`flutter analyze`、`flutter test` | 修改原生配置时构建 Android/iOS；关键流程跑 integration_test |
 | Python | `uv run ruff format --check .`、`uv run ruff check .`、`uv run pytest` | 事务/锁/聚合使用 PostgreSQL 集成测试 |
 | Django | `uv run python manage.py check`、`uv run python manage.py makemigrations --check --dry-run` | 新环境迁移和发布前检查 |
-| 合同 | 导出 OpenAPI 并检查兼容性/生成差异 | 接口字段或路由有变化 |
+| 合同 | `uv run python manage.py spectacular --file /tmp/openapi.yaml --validate --fail-on-warn`；CI 用 `--fail-on-warn` 校验 OpenAPI，需零警告零错误 | 接口字段或路由有变化 |
 | 文档 | 相对链接有效、样例字段一致、无过期运行说明 | 变更需求/导入格式时同步 |
 
 CI 分路径触发；纯文档不必构建完整双端。PR 上至少执行受影响检查，主分支构建 Android；iOS 从 M0 起在 Mac runner 验证，发布包由正式签名流程构建。

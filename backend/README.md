@@ -83,6 +83,8 @@ uv run --env-file .env python manage.py runserver
 - 教学班开课：`GET /api/v1/offerings/`
 - 教学备注：`GET /api/v1/sessions/{id}/notes/`、`PUT /api/v1/sessions/{id}/notes/mine/`、`POST /api/v1/sessions/{id}/notes/mine/publish/`（详见下文）
 - 教学交接：`GET /api/v1/handoffs/prefill/?source_session_id=`、`POST/GET /api/v1/handoffs/`、`GET /api/v1/handoffs/{id}/`、`POST /api/v1/handoffs/{id}/read/`、`POST /api/v1/handoffs/{id}/acknowledge/`、`POST /api/v1/handoffs/{id}/withdraw/`（详见下文）
+- 教学计划与进度：`GET/PUT /api/v1/offerings/{id}/plan/`
+- 授课完成：`GET/PUT /api/v1/sessions/{id}/completion/`
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - 调课申请：`POST/GET /api/v1/reschedule-requests/`、`POST /api/v1/reschedule-requests/{id}/submit/`、`POST /api/v1/reschedule-requests/{id}/withdraw/`（详见下文）
 - 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
@@ -161,8 +163,11 @@ uv run --env-file .env ruff format --check .
 uv run --env-file .env ruff check .
 uv run --env-file .env python manage.py check
 uv run --env-file .env python manage.py makemigrations --check --dry-run
+uv run --env-file .env python manage.py spectacular --file /tmp/openapi.yaml --validate --fail-on-warn
 uv run --env-file .env pytest
 ```
+
+OpenAPI 校验必须零警告零错误；CI 在 pytest 之前执行同一命令。
 
 大规模性能测试默认不运行（`pyproject.toml` 中 `addopts` 排除了 `perf` marker）。单独运行：
 
@@ -196,6 +201,7 @@ uv run --env-file .env pytest -m perf
 | `EMAIL_USE_TLS`        | 否   | `true`/`false`，默认关闭                                           |
 | `DEFAULT_FROM_EMAIL`   | 否   | 发件人，示例为虚构地址                                             |
 | `APP_LINK_BASE`        | 否   | 邮件 App 深链前缀，默认 `teacherschedule://`；不要带查询参数       |
+| `PLAN_BEHIND_THRESHOLD_HOURS` | 否 | 教学计划落后阈值，Decimal 字符串，默认 `2.0`；不能使用 float |
 | `DJANGO_MEDIA_ROOT`    | 否   | 私有上传目录；默认 `backend/var/media`，不得由 Web 服务器直接暴露 |
 
 `DATABASE_URL` 缺失或为空时服务立即报错退出，**不回退到 SQLite**。
@@ -261,19 +267,25 @@ backend/
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
-│   └── teaching/        # B20 教学备注、B21 交接、客户端幂等记录
-│       ├── models.py    # TeachingNote / Handoff / ClientMutation
-│       ├── selectors.py # 备注读写权限、上次已完成课次与可读范围
+│   └── teaching/        # B20 备注、B21 交接、B22 计划/完成、B23 落后提醒
+│       ├── models.py    # 备注、交接、计划、专题、修订、完成记录、幂等记录
+│       ├── selectors.py # 备注/计划/完成权限、上次课次与可读范围
 │       ├── services.py  # 备注保存草稿/发布事务、版本冲突与幂等
-│       ├── serializers.py # 备注 API/sync JSON 合同
-│       ├── views.py     # /sessions/{id}/notes/ 三类接口
+│       ├── plans.py     # B22 计划保存、归档与完整修订快照
+│       ├── completion.py # B22 完成/更正/撤销、分配上限与并发锁
+│       ├── progress.py  # 唯一进度算法（常数查询）
+│       ├── reminders.py # B23 每日落后提醒服务
+│       ├── hours.py     # Decimal 学时解析与一位小数输出
+│       ├── management/commands/send_plan_reminders.py
+│       ├── plan_serializers.py / completion_serializers.py
+│       ├── progress_views.py # /offerings/{id}/plan/ 与 /sessions/{id}/completion/
 │       ├── handoffs.py  # B21 交接创建/已读/确认/撤回、预填与调课提示
 │       ├── handoff_serializers.py # 交接 API 合同与 JSON payload
 │       ├── handoff_views.py # /handoffs/ 预填/列表/详情/状态动作
 │       ├── admin.py     # 交接只读列表（筛选状态、搜索课程/教师）
 │       ├── urls.py
 │       ├── migrations/
-│       └── tests/       # A10/A14/A18/A23/A25、交接规则/并发/调课提示、同步查询数
+│       └── tests/       # A10/A11/A12/A13/A14/A18/A23/A24/A25、计划/提醒/并发/查询数
 ├── manage.py
 ├── pyproject.toml
 ├── uv.lock
@@ -446,6 +458,83 @@ ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NO
 `apps.scheduling.changes` 在函数内局部导入该服务，避免 `scheduling` 与 `teaching` 的模块级循环导入。
 
 Admin 的“教学交接”列表只读，可按状态筛选并按课程/教师搜索，供教务查看确认状态；不提供直接修改。
+
+## 教学计划与授课完成（B22 后端）
+
+以下接口均需 JWT，并先通过 `require_active_teacher`；未关联账号返回 403
+`TEACHER_NOT_LINKED`，档案停用返回 403 `TEACHER_DISABLED`。计划和完成信息只对该 offering
+当前有效任课教师及该 offering 课次的实际授课教师开放，不按教学班共享。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/offerings/{id}/plan/` | 返回 `{plan, progress, can_edit}`。`plan` 含当前版本、负责人和专题；没有计划时为 null。`progress` 由服务端唯一算法生成。 |
+| `PUT /api/v1/offerings/{id}/plan/` | 仅 offering 的 `lead_teacher`。body 为 `items`、`base_version`；保存顺序即 position。首次 `base_version=0`，否则必须等于当前 version。 |
+| `GET /api/v1/sessions/{id}/completion/` | 当前完成字段、当前专题分配、该 offering 未归档可分配专题、CompletionRecord 历史。 |
+| `PUT /api/v1/sessions/{id}/completion/` | body 为 `action`（complete/correct/revert）、`actual_hours`、`allocations`、`reason`、`base_version`；仅该课次 SessionTeacher 可写。 |
+
+计划编辑：带 `id` 更新原条目并保持 ID；不带 `id` 新建；`due_date` 与 `due_session_id`
+至多一个，`due_session` 必须属于同一 offering。请求中没有出现、且无 `SessionProgress` 的条目
+直接删除；有分配历史的条目改为 `archived=true`，保留历史分配、不再接受新分配，也不进入落后
+判断。每次成功保存都令 plan version +1，并追加一条完整 `PlanRevision`，历史版本不覆盖。
+非负责人返回 403 `NOT_PLAN_OWNER`；版本冲突返回 409 `PLAN_VERSION_CONFLICT` 并附 `current`。
+
+`progress` 字段均为一位小数字符串（课次数为整数）：
+
+- `target_hours`、`completed_hours`（仅 completed 课次 actual_hours，一课只计一次）、
+  `remaining_hours=max(target−completed,0)`、`over_hours=max(completed−target,0)`（超额单列）。
+- `remaining_sessions` 为全部 scheduled 课次（过去未确认不漏计）；`past_pending_sessions` 为
+  scheduled 且 `end_at<now`；`future_sessions` 为 scheduled 且 `end_at>=now`；cancelled 不计。
+- `unallocated_hours=completed_hours−全部 SessionProgress 之和`。
+- `items` 每个专题含 `planned_hours/actual_hours/due/is_due/shortfall/archived`。没有计划时
+  `plan_status=not_set`，不判定落后；有计划时 `behind_hours` 为未归档且 due 已到的专题差额
+  之和，仅当差额为正且达到 settings `PLAN_BEHIND_THRESHOLD_HOURS` 为 `behind`，否则
+  `on_track`；阈值为 0 时零缺口仍为 `on_track`。
+- 算法固定 3 条查询（课次聚合、plan、专题聚合一页），不随课次数增长；测试直接统计
+  `CaptureQueriesContext` 的 3 条查询。
+
+完成写入在一个事务内按 **SchoolSyncState → Term → ClassSession** 加锁。课次当前 version 必须
+等于 `base_version`，否则 409 `SESSION_VERSION_CONFLICT` 并附当前完成信息。两个授课教师同时
+确认同一课次时，后到事务在课次行锁释放后读到新版本，返回 409，因此恰好一个成功。
+
+- complete 只允许 scheduled 且 `start_at<=now`，cancelled 和未来课次返回 409
+  `INVALID_COMPLETION_TRANSITION`；结束时间已过不会自动完成。
+- correct/revert 只允许 completed，且 reason 去掉首尾空白后不能为空。
+- complete/correct 的 actual_hours 必填、非负、最多一位小数。allocations 整体替换本课次分配；
+  专题必须属于该 offering 的计划且未归档、不能重复，合计不能超过本课次 actual_hours。超过返回
+  400 `ALLOCATION_EXCEEDS_SESSION_HOURS`，响应附 `allocation_total` 与 `session_actual_hours`；
+  合计小于实际学时是合法的，差额进入 `unallocated_hours`。
+- revert 将课次恢复 scheduled，清空 actual_hours/完成教师/完成时间/完成依据，删除全部
+  SessionProgress。每次 complete/correct/revert 都写 CompletionRecord，课次 version +1，并在
+  同一事务写 session ChangeLog。
+
+保存备注只更新备注及 note ChangeLog，不调用完成服务，不改变课次 `status/actual_hours/version`
+（A11/A12）。
+
+## 计划落后提醒（B23 后端）
+
+每日命令：
+
+```bash
+uv run --env-file .env python manage.py send_plan_reminders
+# 指定学校本地判期日期，便于补跑或验收：
+uv run --env-file .env python manage.py send_plan_reminders --date 2026-10-26
+```
+
+命令逐个处理有教学计划的 offering，每个 offering 一个事务。`plan_status=behind` 时给该
+offering 的每位当前有效任课教师创建一条 `plan_behind` 站内消息，事件键为
+`plan_behind:{offering_id}:{date}`；同一教师同一天重复运行不会重复创建。`on_track`、`not_set`
+不发；没有计划的 offering 不处理；同一教学班的不同课程分别计算并分别提醒。正文包含最早到期
+专题日期、该专题差额和合计差额。输出处理、落后、创建、同日跳过和无任课教师的统计。
+
+本切片只创建站内消息和既有 `pending` DeliveryAttempt 骨架，不调用真实推送通道（归 B40）。
+部署环境应使用系统定时任务每天运行一次，例如在学校时区的清晨执行，并保留命令输出：
+
+```cron
+0 7 * * * cd /srv/teacher-schedule/backend && uv run --env-file .env python manage.py send_plan_reminders >> /var/log/teacher-schedule-plan-reminders.log 2>&1
+```
+
+上面的路径只是部署示例，实际以部署目录和进程账号为准；生产环境也可直接注入环境变量而不使用
+`.env`。
 
 ## 离线同步（B14）
 

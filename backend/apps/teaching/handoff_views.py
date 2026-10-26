@@ -10,7 +10,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
@@ -76,6 +76,7 @@ class HandoffPrefillView(APIView):
     permission_classes = (IsAuthenticated,)
 
     @extend_schema(
+        operation_id="handoffs_prefill",
         summary="交接发送表单预填",
         description=(
             "只读：不创建交接或消息。recipients 为该 offering 当前有效任课教师（排除本人），"
@@ -112,15 +113,24 @@ class HandoffPagination(PageNumberPagination):
 
 class HandoffListCreateView(APIView):
     permission_classes = (IsAuthenticated,)
-    pagination_class = HandoffPagination
 
     @extend_schema(
+        operation_id="handoffs_list",
         summary="交接列表",
         description=(
             "box=inbox 返回本人收到的交接，box=sent 返回本人发出的交接；status 可选。"
             "按 created_at、id 倒序，DRF 标准分页。can_acknowledge/can_withdraw 按当前教师身份计算。"
         ),
-        parameters=[HandoffListQuerySerializer],
+        parameters=[
+            HandoffListQuerySerializer,
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="分页页码。",
+            ),
+        ],
         responses={
             200: PaginatedHandoffListSerializer,
             400: HandoffErrorSerializer,
@@ -138,12 +148,16 @@ class HandoffListCreateView(APIView):
             box=query.validated_data["box"],
             status=query.validated_data.get("status"),
         )
-        paginator = self.pagination_class()
+        # Keep pagination explicit on GET only.  If it were a view-level
+        # ``pagination_class``, drf-spectacular would also wrap the POST create
+        # response as a paginated page and emit the wrong 201 schema.
+        paginator = HandoffPagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
         serializer = HandoffSerializer([handoff_payload(handoff, teacher) for handoff in page], many=True)
         return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
+        operation_id="handoffs_create",
         summary="发送教学交接",
         description=(
             "为每个接收人创建一条 pending 交接并发送 handoff_received 站内消息；"
@@ -225,6 +239,7 @@ class HandoffDetailView(APIView):
     permission_classes = (IsAuthenticated,)
 
     @extend_schema(
+        operation_id="handoffs_detail",
         summary="交接详情",
         description="仅发送人或接收人可看，其他人 404。GET 不写 read_at，也不改变状态。",
         responses={200: HandoffSerializer, 403: HandoffErrorSerializer, 404: HandoffErrorSerializer},
@@ -242,6 +257,7 @@ class HandoffReadView(APIView):
     permission_classes = (IsAuthenticated,)
 
     @extend_schema(
+        operation_id="handoffs_read",
         summary="标记交接已读",
         description="仅接收人；只写 read_at，不改变 status。重复调用返回同一 read_at。",
         request=None,
@@ -261,6 +277,7 @@ class HandoffAcknowledgeView(APIView):
     permission_classes = (IsAuthenticated,)
 
     @extend_schema(
+        operation_id="handoffs_acknowledge",
         summary="确认收到交接",
         description=(
             "仅接收人；pending → acknowledged，写 acknowledged_at，read_at 为空时一并写入，"
@@ -289,6 +306,7 @@ class HandoffWithdrawView(APIView):
     permission_classes = (IsAuthenticated,)
 
     @extend_schema(
+        operation_id="handoffs_withdraw",
         summary="撤回交接",
         description=(
             "仅发送人；只能撤回 pending。已确认返回 409 HANDOFF_ALREADY_ACKNOWLEDGED；重复撤回幂等。撤回不发送消息。"

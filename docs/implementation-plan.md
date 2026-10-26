@@ -257,8 +257,8 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 审批 | Admin 三个 action 调用服务：普通批准并生效、驳回、登记学校强制安排 | 不向普通教师开放审批 API；强制安排必须填写学校审批编号/依据 |
 | 备注 | `GET sessions/{id}/notes/`、`PUT sessions/{id}/notes/mine/`、`POST sessions/{id}/notes/mine/publish/` | GET 返回 `mine/others/previous`；PUT 只存三段草稿，显式 publish 复制发布快照；写请求的 `client_mutation_id` 与 `base_version` 必填；无可发布内容返回 409 `NOTHING_TO_PUBLISH` |
 | 交接 | `GET handoffs/prefill/?source_session_id=`、`POST handoffs/`、`GET handoffs/?box=inbox\|sent&status=`、`GET handoffs/{id}/`、`POST handoffs/{id}/read/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 每条交接一个接收人；发送时固定内容快照与备注发布版本；read 不等于确认；重复确认/撤回幂等；错误码见下文 |
-| 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | 负责人保存章节与分配 |
-| 授课确认 | `PUT sessions/{id}/completion/` | status、actual_hours、章节分配、base_version |
+| 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | GET 返回 plan/progress/can_edit；PUT 仅 lead_teacher，body 为 items/base_version，每次保存追加 PlanRevision |
+| 授课确认 | `GET sessions/{id}/completion/`、`PUT sessions/{id}/completion/` | GET 当前完成信息、可分配专题和历史；PUT body 为 action/actual_hours/allocations/reason/base_version |
 | 教室 | `GET classrooms/`、`GET classrooms/{id}/usage/?date=` | 使用记录及前后课 |
 | 联系 | `GET teachers/{id}/contact/` | 仅返回当前允许显示的字段 |
 | 协查 | `POST inquiries/`、`GET inquiries/`、`POST inquiries/{id}/replies/`、`POST inquiries/{id}/close/` | 请求/回复/结案 |
@@ -302,6 +302,15 @@ B21 交接合同（后端部分）：
 - 错误体统一 `{code,detail,field_errors}`。400：`VALIDATION_ERROR`、`INVALID_RECIPIENT`、`INVALID_NOTE`、`INVALID_SESSION`；403：`NOT_OFFERING_TEACHER`、`NOT_HANDOFF_SENDER`、`NOT_HANDOFF_RECIPIENT`；404：`NOT_FOUND`；409：`HANDOFF_WITHDRAWN`、`HANDOFF_ALREADY_ACKNOWLEDGED`。未关联账号/停用档案仍返回既有 403 `TEACHER_NOT_LINKED`/`TEACHER_DISABLED`。
 - 正式调课后，`scheduling.changes.apply_session_change` 在同一事务内调用 `teaching.handoffs.notify_pending_handoffs_for_moved_session`：对 `target_session=该课次` 且仍 `pending` 的交接，给发送人发 `handoff_check` 站内消息，事件键 `handoff:{id}:check:{change.id}`，说明目标课次新时间并请其核对接收人；不自动改接收人、不自动转交，同一 change 重放不重复消息。
 - 交接不写 ChangeLog，也不进入离线队列；发送、已读、确认、撤回都需要在线以服务端结果为准（domain-design 9.2）。本切片不提供修改交接正文的接口，补充说明用新交接。
+
+B22 教学计划与授课完成合同（后端部分）：
+
+- `GET /api/v1/offerings/{id}/plan/` 返回 `{plan, progress, can_edit}`。`plan` 为 `{id, version, owner:{id,name}, status, items:[{id, position, title, planned_hours, due_date, due_session_id, archived}]}`，没有计划时为 null。可读范围为该 offering 当前有效任课教师与该 offering 课次的 `SessionTeacher`，不按教学班共享；同一教学班其他课程教师 403 `NOT_OFFERING_TEACHER`，完全不可见 404 `NOT_FOUND`。`can_edit` 仅对 offering 的 `lead_teacher` 为 true。
+- `PUT /api/v1/offerings/{id}/plan/` body 为 `items`、`base_version`，顺序即 position。首次保存 `base_version=0`；已有计划时必须等于当前 `version`，否则 409 `PLAN_VERSION_CONFLICT` 并附 `current`。只有 lead_teacher 可写，其他教师 403 `NOT_PLAN_OWNER`。带 `id` 更新原条目并保持 ID，不带 `id` 新建；`due_date` 与 `due_session_id` 至多一个，due_session 必须属于同一 offering。未出现在请求中的已有条目，无 SessionProgress 时删除，有分配历史时 `archived=true` 并在 items 中返回；归档条目保留历史分配、不进入落后判断、不再接受新分配。每次成功保存令版本 +1 并追加一条完整 `PlanRevision`，不覆盖旧快照。
+- `progress` 由 `teaching.progress.offering_progress` 唯一计算，字段为 `target_hours`、`completed_hours`、`remaining_hours`、`over_hours`、`remaining_sessions`、`past_pending_sessions`、`future_sessions`、`unallocated_hours`、`plan_status`、`behind_hours`、`behind_threshold_hours`、`items`。学时均为一位小数字符串。`completed_hours` 只合计 completed 课次且每课次一次；取消课不计；剩余课次包含过去待确认课次。专题项含 `plan_item_id/title/planned_hours/actual_hours/due/is_due/shortfall/archived`。`behind_hours` 为未归档且已到 due 的专题 shortfall 之和；仅当 `behind_hours > 0` 且达到 settings `PLAN_BEHIND_THRESHOLD_HOURS`（Decimal 字符串，默认 `2.0`）为 `behind`，否则 `on_track`；阈值为 0 也不把零缺口判为落后。没有计划为 `not_set`，不判定落后。查询数固定为 3，不随课次数量增长。
+- `GET /api/v1/sessions/{id}/completion/` 返回 `session_id/status/actual_hours/completed_by/completed_at/completion_ref/version/allocations/available_items/history`。`allocations` 为当前 `SessionProgress`，`available_items` 为该 offering 未归档专题，`history` 为按时间倒序的 CompletionRecord。
+- `PUT /api/v1/sessions/{id}/completion/` body 为 `action`（`complete/correct/revert`）、`actual_hours`、`allocations`（`[{plan_item_id, actual_hours}]`）、`reason`、`base_version`。只有该课次任一 `SessionTeacher` 可写，否则 403 `NOT_SESSION_TEACHER`。complete 仅允许 `scheduled` 且 `start_at<=now`；correct/revert 仅允许 `completed`；不合法状态转换 409 `INVALID_COMPLETION_TRANSITION`。complete/correct 的 actual_hours 必填（≥0，一位小数）；correct/revert 的 reason 必填。allocations 整体替换该课次分配，专题必须属于该 offering 计划且未归档、不能重复、合计不得超过 actual_hours；超出返回 400 `ALLOCATION_EXCEEDS_SESSION_HOURS` 并附合计与上限，允许合计小于 actual_hours。revert 清空 actual_hours/完成字段并删除分配。`base_version` 不等于课次当前 `version` 时 409 `SESSION_VERSION_CONFLICT` 并附 `current`。成功操作在 State→Term→ClassSession 锁顺序内令课次 version+1，写 session ChangeLog、SessionProgress 和 CompletionRecord；保存备注不调用本服务，不改变课次状态/学时/version。
+- B23 使用 `python manage.py send_plan_reminders [--date YYYY-MM-DD]`：逐个有计划的 offering 在独立事务内计算；`behind` 时给每位当前有效任课教师发一条 `plan_behind` 站内消息，正文含最早到期专题和差额，事件键 `plan_behind:{offering_id}:{date}`。同一天重跑不重复；on_track/not_set 不发；同教学班不同课程分别处理。部署时由系统定时任务每天运行一次。
 
 错误示例：
 
@@ -371,7 +380,7 @@ OpenAPI 是前后端合同的正式输出，本文是设计输入。接口字段
 | 收到交接/确认/调课后核对 | 必须 | 远程推送，可关闭 | handoff_id + 事件（核对含 change_id），跳交接 |
 | 调课通过/驳回 | 必须 | 远程推送 | request_id + 状态版本 |
 | 协查请求/回复 | 必须 | 远程推送 | inquiry/reply ID |
-| 教学计划落后 | 每日摘要 | 默认站内，教师可开系统提醒 | offering_id+日期，跳该课程计划 |
+| 教学计划落后 | 每日摘要：`send_plan_reminders` 生成 `plan_behind` | 默认站内，教师可开系统提醒 | 事件键 `plan_behind:{offering_id}:{date}`，跳该课程计划 |
 
 站内 Notification 和首条 DeliveryAttempt 在业务事务内落库；定时管理命令每分钟处理待投递项，记录 pending/processing/sent/failed 与 next_attempt_at，重试增加 attempt_no；有限重试（如 1/5/30 分钟）后保留失败状态，可由教务重试。sent 只表示供应商受理，provider_delivered_at 仅在实际设备回执可用时记录，用户点击后的 read_at 是第三件事。`on_commit` 仅用于唤醒处理，不把“回调调用了”当作消息已落库。
 

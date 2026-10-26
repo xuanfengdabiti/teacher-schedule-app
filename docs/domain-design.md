@@ -35,7 +35,7 @@
 | `Student` 学生 | 学校学生编号；是冲突判断的对象，不要求首版有学生账号 |
 | `TeachingClass` 教学班 | 学期、名称、编号；展示和筛选用途，不能代替实际选课关系 |
 | `Course` 课程目录 | 课程代码、课程名；可跨学期复用 |
-| `CourseOffering` 课程开设 | 学期、课程、教学班、总目标学时、负责人、每学时分钟数、进度基准版本 |
+| `CourseOffering` 课程开设 | 学期、课程、教学班、总目标学时、负责人、每学时分钟数；计划基准由 TeachingPlan/PlanRevision 单独保存 |
 | `Enrollment` 实际选课 | 课程开设、学生、生效/失效日期；冲突按目标日期筛选有效关系 |
 | `TeachingAssignment` 任课分工 | 课程开设、教师、角色、生效区间；课次实际授课教师还需明确关联 |
 | `Classroom` 教室 | 校区、楼宇、房间号、容量、设备、可用状态；同名教室按校区区分 |
@@ -47,9 +47,11 @@
 | `RescheduleRequest` 调课申请 | 原课次、目标时间与教室、说明、查询时版本、当前状态、学校审批结果；申请本身不占用教室 |
 | `TeachingNote` 教学记录 | 课次、作者、已讲、未完成、下次计划、草稿/已发布、更新时间、版本号 |
 | `Handoff` 教学交接 | 课程开设、来源记录、发送教师、接收教师、目标课次可空、内容、待确认/已确认/已撤回、确认时间 |
-| `TeachingPlan` 教学计划 | 课程开设、负责人、基准版本、计划状态 |
-| `PlanItem` 计划专题 | 教学计划、排序、标题、预计学时、计划完成课次/周次、实际状态 |
+| `TeachingPlan` 教学计划 | 课程开设、负责人、当前版本、计划状态 |
+| `PlanItem` 计划专题 | 教学计划、排序、标题、预计学时、计划完成日期或课次、归档标记 |
+| `PlanRevision` 计划修订 | 教学计划、版本、保存时的完整专题快照、保存教师、保存时间；只追加不覆盖 |
 | `SessionProgress` 课次专题关联 | 课次、专题、本次完成学时；同一课次可以覆盖多个专题 |
+| `CompletionRecord` 完成记录 | 课次、操作教师、complete/correct/revert、操作前后学时、专题分配快照、原因、时间 |
 | `Notification` 消息 | 接收教师、类型、对象 ID、内容摘要、已读时间、唯一事件键 |
 | `Inquiry` 协查请求 | 发起人、教室、起止时间、物品描述、open/replied/closed、结案说明及时间；支持勾选多个相关教师 |
 | `InquiryRecipient` 协查接收人 | 请求、被选中的教师、相关课次引用、首次查看时间；不因后续调课默默替换收件人 |
@@ -79,7 +81,7 @@
 | ScheduleRule / ClassSession / SessionTeacher | Rule：offering_id、weeks 列表、weekday、period_start/end、classroom_id、source_key；源 key 在来源范围内唯一。Session：offering_id、start_at、end_at、origin_teaching_date、origin_period、rule_id 可空、classroom_id、status、planned_hours≥0、actual_hours、completed_by_teacher_id/at、completion_ref、recorded_by_user_id、version；scheduled 的 actual_hours 为空，completed 必填非负量和教师确认来源，cancelled 为 0；检查 end_at>start_at；索引 offering_id+start_at、classroom_id+start_at。规则生成键 rule_id+origin_teaching_date+origin_period 唯一且调课后不变；SessionTeacher：session_id+teacher_id 唯一，索引 teacher_id+session_id |
 | SessionChange / RescheduleRequest | Change：session_id、request_id 可空、before_json、after_json、session_version、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_date、target_start_period/end_period、target_start_at/end_at、target_classroom_id、reason、base_session_version、checked_schedule_version、check_summary、status、needs_verification、decision_by/at/ref/note、forced_override；索引 applicant_id+created_at、status+created_at；同一课次+申请人的 submitted 申请唯一；状态迁移与正式生效统一服务 |
 | TeachingNote / Handoff | Note：session_id+author_id 唯一，draft_covered/unfinished/next_plan 与 published_covered/unfinished/next_plan 分开、published_at、published_version、version；published_at 与 published_version 同时为空或非空；保存草稿不覆盖已发布快照。Handoff：offering_id、note_id/version 可空、sender_id、recipient_id、source_session_id/target_session_id 可空、content_snapshot（≤5000）、status=pending/acknowledged/withdrawn、read_at、acknowledged_at、withdrawn_at；sender≠recipient，acknowledged 必须有确认时间，withdrawn 必须有撤回时间，note 与 note_published_version 同为空或同非空；索引 recipient_id+status+created_at、sender_id+created_at；一条交接一个接收人 |
-| TeachingPlan / PlanItem / SessionProgress | Plan：offering_id 一对一、owner_id、baseline_version、status、version。Item：plan_id+position 唯一，title、planned_hours≥0、due_date 或 due_session_id、baseline_version。Progress：session_id+plan_item_id 唯一、actual_hours≥0；索引 plan_item_id。每次完成确认事务校验分配和≤课次实际学时、专题与课次同属一个 Offering |
+| TeachingPlan / PlanRevision / PlanItem / SessionProgress / CompletionRecord | Plan：offering_id 一对一、owner_id、status、version≥1。Revision：plan_id+version 唯一，items_json 为保存时完整条目快照，saved_by/saved_at；每次保存追加，不删除旧版本。Item：plan_id+position 唯一，position≥1，title、planned_hours≥0、due_date 与 due_session_id 至多一个、archived；due_session 必须同 offering（服务校验）。Progress：session_id+plan_item_id 唯一、actual_hours≥0；索引 plan_item_id。CompletionRecord：session_id、actor_id、action=complete/correct/revert、操作前后 actual_hours、allocations_json、reason（correct/revert 必填）、created_at。每次完成/更正/撤销在同一事务写课次日志、SessionProgress 和记录；分配合计≤课次实际学时，专题与课次同属一个 Offering |
 | Inquiry / InquiryRecipient / InquiryReply | Inquiry：initiator_id、classroom_id、from_at、to_at、item_description、status、closed_at、close_note；索引 initiator_id+status+created_at，检查 to_at>from_at。Recipient：inquiry_id+teacher_id 唯一，related_session_ids 快照。Reply：inquiry_id、author_id、result=not_seen/in_custody/other、body、created_at；索引 inquiry_id+created_at。允许同一接收人补充回复，每条回复追加保存；只有发起人结案 |
 | ImportBatch / ImportIdentity / DataCoverage | Batch：source_system、term_id、kind、mode、scope_json、file_hash、status=uploaded/previewed/committed/failed、preview_base_schedule_version、row_counts、errors_json、committed_by/at；索引 term_id+created_at。Identity：school_id+source_system+entity_type+external_id 唯一。Coverage：school_id、term_id、kind、scope_key、from_date、until_date、completeness、source_updated_at、batch_id，索引 term_id+kind+scope_key+from_date；覆盖包含目标范围且标记完整才可证明该类数据完整，不能以“无记录”代替 complete |
 | Notification / DeviceRegistration / DeliveryAttempt | 消息：recipient_id+event_key 唯一，type、object_type/id、read_at；索引 recipient_id+created_at、recipient_id+read_at。设备：installation_id 唯一、user_id、provider、provider_client_id、platform、enabled、last_seen_at。投递：notification_id+device_id+channel+attempt_no 唯一，status=pending/processing/sent/failed、next_attempt_at、provider_message_id、provider_delivered_at 可空、error_code、error_summary；索引 status+next_attempt_at；供应商受理 sent、设备回执 provider_delivered_at 与 App 已读 read_at 分开 |
@@ -192,6 +194,17 @@
 延期判断以已到计划截止的专题与实际完成状态比较，展示“原计划第 8 周完成，目前还差 2 学时”；未填写计划则显示“未设置基准”，不擅自判定落后。取消课和停课应提示负责人重新排计划；系统不能静默把基准日期后移后宣称没有延期。
 
 历史学时修正需要填写简短原因；课程汇总与专题汇总由服务端统一计算，手机不再实现另一套算法。首次导入若学期已过半，导入明确标注 actual_hours 和完成确认来源的历史具体课次；不再引入一项无课次依据的“期初已完成学时”，也不能把所有历史课次自动视为完成。
+
+### 6.3 已实现口径（B22 / B23 后端）
+
+- 授课完成只能由该课次的任一 `SessionTeacher` 确认。一节课有多位教师时，`ClassSession.actual_hours` 仍只有一个值，课程进度只累计一次，不按教师人数相加；教师个人工作量拆分留到后续统计。
+- 只有 `status=scheduled` 且 `start_at <= now` 的课次可以确认完成。下课时间已过不会自动完成；`cancelled` 课次不能确认完成；确认未来课次返回 409 `INVALID_COMPLETION_TRANSITION`。
+- 已完成课次可以更正 `actual_hours` 与专题分配，也可以撤销完成回到 `scheduled`。更正和撤销都必须填写原因；撤销同时清空 `actual_hours`、完成教师、完成时间和完成依据，并删除该课次的 `SessionProgress`。每次完成、更正、撤销都追加一条 `CompletionRecord`，不覆盖历史。
+- 计划由 offering 的 `lead_teacher` 维护；其他该 offering 当前有效任课教师只读。教学计划、完成信息和进度只对该 offering 的当前有效任课教师及该 offering 课次的 `SessionTeacher` 可见，不按教学班共享。可见的同一教学班其他课程教师返回 403，完全不可见返回 404。
+- 每次保存计划都令 `TeachingPlan.version+1` 并追加一条 `PlanRevision`，完整保存当时的专题列表、排序、学时、截止日期/课次和归档状态，不能静默覆盖历史基准。请求中移除且没有 `SessionProgress` 的专题直接删除；已有分配历史的专题置 `archived=true`，保留历史分配，不再接受新的分配，也不进入落后判断。
+- `behind_hours` 只累计未归档、`due <= today` 的专题 `max(planned_hours - actual_hours, 0)`。计划存在、`behind_hours > 0` 且 `behind_hours >= PLAN_BEHIND_THRESHOLD_HOURS`（环境变量，Decimal 字符串，默认 `2.0`）为 `behind`，否则 `on_track`；阈值为 0 时也必须存在正差额，不能把已补齐计划判为落后。没有计划为 `not_set` 且不判定落后。`due_date` 为空时取 `due_session` 的学校本地日期，两者都为空的专题不判定到期。
+- 课程总进度由服务端 `teaching.progress.offering_progress` 唯一计算：`completed_hours` 为 completed 课次 actual_hours 之和，`remaining_hours=max(target−completed,0)`，`over_hours=max(completed−target,0)` 单列；`remaining_sessions` 为全部 scheduled 课次，`past_pending_sessions` 为 `scheduled` 且 `end_at<now`，`future_sessions` 为 `scheduled` 且 `end_at>=now`，cancelled 均不计；`unallocated_hours=completed_hours−全部 SessionProgress 之和`。查询次数为常数，不随课次数增长。
+- B23 每日命令 `python manage.py send_plan_reminders [--date YYYY-MM-DD]` 对每个有计划的 offering 计算进度。落后时给该 offering 的每位当前有效任课教师发一条 `plan_behind` 站内消息，事件键为 `plan_behind:{offering_id}:{date}`，同一天重复运行不重复；补齐为 `on_track` 或 `not_set` 当天不发；同一教学班的不同课程分别计算和提醒。部署时用系统定时任务每天运行一次。
 
 ## 7. 教室历史与失物协查
 

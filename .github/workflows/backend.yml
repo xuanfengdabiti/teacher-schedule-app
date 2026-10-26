@@ -66,5 +66,8 @@ jobs:
       - name: Check pending migrations
         run: uv run python manage.py makemigrations --check --dry-run
 
+      - name: Validate OpenAPI contract
+        run: uv run python manage.py spectacular --file /tmp/openapi.yaml --validate --fail-on-warn
+
       - name: Run tests
         run: uv run pytest

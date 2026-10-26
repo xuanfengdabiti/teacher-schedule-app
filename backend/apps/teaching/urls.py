@@ -12,9 +12,16 @@ from apps.teaching.handoff_views import (
     HandoffReadView,
     HandoffWithdrawView,
 )
+from apps.teaching.progress_views import OfferingPlanView, SessionCompletionView
 from apps.teaching.views import MyNotePublishView, MyNoteView, SessionNotesView
 
 urlpatterns = [
+    path("offerings/<uuid:offering_id>/plan/", OfferingPlanView.as_view(), name="offering-plan"),
+    path(
+        "sessions/<uuid:session_id>/completion/",
+        SessionCompletionView.as_view(),
+        name="session-completion",
+    ),
     path("sessions/<uuid:session_id>/notes/", SessionNotesView.as_view(), name="session-notes"),
     path("sessions/<uuid:session_id>/notes/mine/", MyNoteView.as_view(), name="session-note-mine"),
     path(
