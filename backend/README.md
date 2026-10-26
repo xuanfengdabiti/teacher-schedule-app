@@ -87,6 +87,8 @@ uv run --env-file .env python manage.py runserver
 - 授课完成：`GET/PUT /api/v1/sessions/{id}/completion/`
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - 调课申请：`POST/GET /api/v1/reschedule-requests/`、`POST /api/v1/reschedule-requests/{id}/submit/`、`POST /api/v1/reschedule-requests/{id}/withdraw/`（详见下文）
+- 教室与联系方式：`GET /api/v1/classrooms/`、`GET /api/v1/classrooms/{id}/usage/?date=`、`GET /api/v1/teachers/{id}/contact/`
+- 失物协查：`GET /api/v1/inquiries/candidates/`、`POST/GET /api/v1/inquiries/`、`GET /api/v1/inquiries/{id}/`、`POST /api/v1/inquiries/{id}/read/`、`POST /api/v1/inquiries/{id}/replies/`、`POST /api/v1/inquiries/{id}/close/`（详见下文）
 - 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
 - 消息与设备：`GET /api/v1/notifications/`、`POST /api/v1/notifications/{id}/read/`、`PUT/DELETE /api/v1/devices/{installation_id}/`
 - 数据导入：Admin 的“数据导入 → 导入批次 → 上传导入批次”（详见下文）
@@ -231,10 +233,22 @@ backend/
 │   │   └── tests/
 │   ├── academics/       # 学校/学期/节次/校历、教师/学生、课程/开课/选课/覆盖
 │   │   ├── selectors.py # 按日期有效的实际选课查询
+│   │   ├── contacts.py  # B32 联系方式可见性与批量解析
+│   │   ├── serializers.py / views.py / urls.py # 联系方式接口
 │   │   ├── admin.py
 │   │   └── migrations/
-│   ├── classrooms/      # 教室目录与教室非课程占用
+│   ├── classrooms/      # 教室目录、非课程占用与 B32 使用记录
+│   │   ├── selectors.py # 教室筛选、当日 session/cancelled/moved_out/room_block
+│   │   ├── serializers.py / views.py / urls.py
 │   │   ├── admin.py
+│   │   ├── tests/
+│   │   └── migrations/
+│   ├── inquiries/      # B33 失物协查请求、接收人快照与追加回复
+│   │   ├── models.py    # Inquiry / InquiryRecipient / InquiryReply
+│   │   ├── services.py  # 候选、创建、首次查看、回复、结案与行锁
+│   │   ├── serializers.py / views.py / urls.py
+│   │   ├── admin.py     # 只读列表（按状态筛选）
+│   │   ├── tests/       # A16、校验、快照、并发、查询数
 │   │   └── migrations/
 │   ├── notifications/  # 消息、推送设备与投递记录骨架
 │   │   ├── services.py  # notify：事务内去重并建 pending 投递记录
@@ -603,6 +617,58 @@ DeviceRegistration、DeliveryAttempt，便于教务排查失败记录。设备�
 提交规则：`available` 直接提交；`unverified` 提交并置 `needs_verification=true`；`conflict` 返回 409 `RESCHEDULE_CONFLICT` 且不创建记录，`submit=false` 才保存草稿。硬条件失败返回 409 `TARGET_NOT_ALLOWED`（跨午休、过去、校历例外、停用/容量/设备不满足、节次数不一致等），不能被强制安排绕过。同一课次同一申请人已有 submitted 申请时返回 409 `REQUEST_ALREADY_PENDING`，草稿不受限制。
 
 审批不开放教师 API，只通过 Admin 的三个 action 调用 `apps.scheduling.requests`：普通“批准并生效”、需要说明的“驳回”、必填学校审批编号的“登记学校强制安排”。普通批准在事务内重新检查，只有 `available` 生效；`unverified`/`conflict` 不能普通生效（统一写入口返回 `DATA_UNVERIFIED`/`SCHEDULE_CONFLICT` 并附评估结果），只能强制登记，并要求 `forced_override=true` 与风险说明。所有生效都经过 `apps.scheduling.changes.apply_session_change`：批准路径锁顺序为 SchoolSyncState → Term → RescheduleRequest → ClassSession，更新同一课次 ID、递增课次与学期版本，写 SessionChange 前后快照和 session+term ChangeLog，并为每位 SessionTeacher 与申请人创建幂等站内消息。驳回和撤回都不改课表。
+
+## 教室使用记录与联系方式（B32 后端）
+
+以下接口均需 JWT，并先通过 `require_active_teacher`。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/classrooms/?q=&campus=&building=` | 本校教室，按 campus/building/room_no 排序；q 模糊匹配编号、楼宇、房间号；DRF 标准分页。 |
+| `GET /api/v1/classrooms/{id}/usage/?date=YYYY-MM-DD` | date 必填（学校本地日期）。entries 按 start_at 排序，kind 为 session/cancelled_session/moved_out/room_block。 |
+| `GET /api/v1/teachers/{id}/contact/` | 按当前查看人返回 phone/wechat 及 status；其他学校教师 404。 |
+
+usage 的 `session` 返回课次、课程名、教学班、状态、`is_moved` 和授课教师；教师项含
+`has_visible_contact`（电话或微信至少一项对当前查看人可见）。`cancelled_session` 额外返回
+`status_reason`。`moved_out` 从 `SessionChange.before_json` 中原本
+`classroom_id`/`date` 等于该教室该日的快照取得：`start_at`/`end_at` 是原时段，
+`current_start_at`/`current_end_at`/`current_classroom_code` 是当前结果；当前已经在该教室
+该日的课次不会重复显示为 moved_out。`room_block` 返回 reason/block_code。顶层固定
+`notice="排定课程记录，不代表实际到场或物品去向。"`。
+
+`data_completeness` 只取 `complete`/`incomplete`，复用
+`apps.scheduling.reschedule_options.classroom_day_coverage_complete`：只有
+`classroom_schedule` 与 `room_blocks` 两类都对该日、对该教室（`school` 或
+`classroom:{code}`）声明 complete 才是 complete；partial/缺失为 incomplete。usage 查询数
+固定，不随课次或教师数量增长。
+
+联系方式状态：`visible` 返回值；`not_provided` 表示未填写；`hidden` 表示已填写但对当前
+查看人不可见，两者都为 null 值但含义不同。`private` 不可见；`course_teachers` 要求查看人与
+目标教师同为某个 offering 的当前有效任课教师，或同为某个课次的 `SessionTeacher`（同教学班
+不同课程不算）；`school_teachers` 对本校 active 教师可见。本人看自己全部可见；目标教师档案
+或关联账号停用一律不可见。教室 usage 的 `has_visible_contact` 与 contact 接口调用同一个
+`apps.academics.contacts.ContactVisibilityResolver`，批量计算只增加固定查询。
+
+## 失物协查（B33 后端）
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/inquiries/candidates/?classroom_id=&from_at=&to_at=` | 只读候选：该教室在 `[from_at,to_at)` 内重叠的 scheduled/completed 课次授课教师（排除本人），附 related_session_ids、课程名、上课时间。跨度≤7 天。 |
+| `POST /api/v1/inquiries/` | body 为 `classroom_id`、`from_at`、`to_at`、`item_description`（≤1000）、`recipient_ids`（1–20）。只发给显式勾选且在候选中的教师；任一不合法整体 400 且不创建。201 返回详情。 |
+| `GET /api/v1/inquiries/?box=sent\|received&status=` | 本人发起/收到的协查；created_at 倒序，DRF 标准分页；box 默认 received。 |
+| `GET /api/v1/inquiries/{id}/` | 发起人与接收人可见，其他人 404；含接收人首次查看/是否已回复、全部回复、固定 notice。GET 不写首次查看时间。 |
+| `POST /api/v1/inquiries/{id}/read/` | 仅接收人，首次写 first_viewed_at；不改变 status。 |
+| `POST /api/v1/inquiries/{id}/replies/` | 仅接收人；result 为 not_seen/in_custody/other，body≤1000，other 必填；可多次追加，首条 open→replied；每条给发起人发 inquiry_replied。 |
+| `POST /api/v1/inquiries/{id}/close/` | 仅发起人；open/replied→closed，写 closed_at 与可空 close_note；重复结案幂等；closed 后回复 409。 |
+
+创建在一个事务内写入 Inquiry(open)、每位接收人的 related_session_ids 快照和
+`inquiry_received` 消息（事件键 `inquiry:{id}:received`）。快照之后不因正式调课改变。
+每条回复通知发起人，事件键 `inquiry_reply:{reply_id}`。回复和结案都对 Inquiry 行
+`select_for_update`，因此并发时只能是“先回复再结案”或“先结案后回复 409
+`INQUIRY_CLOSED`”。错误码：400 `VALIDATION_ERROR`/`INVALID_DATE_RANGE`/
+`INVALID_RECIPIENT`；403 `NOT_INQUIRY_RECIPIENT`/`NOT_INQUIRY_INITIATOR`；404
+`NOT_FOUND`；409 `INQUIRY_CLOSED`。本切片只落站内消息，不调用真实推送；文本即可，不做
+图片附件或即时聊天。
 
 ## 常用开发命令
 
