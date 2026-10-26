@@ -81,6 +81,7 @@ uv run --env-file .env python manage.py runserver
 - 学期与校历：`GET /api/v1/terms/`、`GET /api/v1/terms/{id}/calendar/`
 - 课表：`GET /api/v1/sessions/`、`GET /api/v1/sessions/{id}/`
 - 教学班开课：`GET /api/v1/offerings/`
+- 教学备注：`GET /api/v1/sessions/{id}/notes/`、`PUT /api/v1/sessions/{id}/notes/mine/`、`POST /api/v1/sessions/{id}/notes/mine/publish/`（详见下文）
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - 调课申请：`POST/GET /api/v1/reschedule-requests/`、`POST /api/v1/reschedule-requests/{id}/submit/`、`POST /api/v1/reschedule-requests/{id}/withdraw/`（详见下文）
 - 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
@@ -259,6 +260,15 @@ backend/
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
+│   └── teaching/        # B20 教学备注、发布快照、客户端幂等记录
+│       ├── models.py    # TeachingNote / ClientMutation
+│       ├── selectors.py # 备注读写权限、上次已完成课次与可读范围
+│       ├── services.py  # 保存草稿/发布事务、版本冲突与幂等
+│       ├── serializers.py # API/sync JSON 合同
+│       ├── views.py     # /sessions/{id}/notes/ 三类接口
+│       ├── urls.py
+│       ├── migrations/
+│       └── tests/       # A10/A18/A23/A25、权限、并发与同步查询数
 ├── manage.py
 ├── pyproject.toml
 ├── uv.lock
@@ -355,27 +365,63 @@ ${DJANGO_MEDIA_ROOT:-backend/var/media}/imports/<batch_uuid>/
 一周或六周范围均为 6 条查询（含 JWT 用户与教师档案查询），不随课次数增长。`pytest -m perf`
 用 20,000 课次规模验证 `scope=teaching_class` 一周请求。
 
+## 教学备注与离线草稿（B20）
+
+以下接口均需 JWT，并先通过 `require_active_teacher`；未关联账号返回 403
+`TEACHER_NOT_LINKED`，档案停用返回 403 `TEACHER_DISABLED`。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/sessions/{id}/notes/` | 返回 `mine`、`others`、`previous`；`mine` 含本人草稿，没有则为 null；`others` 只含其他教师已发布快照；`previous` 为上次已完成课次的共享记录。 |
+| `PUT /api/v1/sessions/{id}/notes/mine/` | body 必填 `covered`、`unfinished`、`next_plan`、`base_version`、`client_mutation_id`；只更新 draft，不回写 published 或课次学时。 |
+| `POST /api/v1/sessions/{id}/notes/mine/publish/` | body 必填 `base_version`、`client_mutation_id`；把当前 draft 复制到 published，`published_at=now`、`published_version`=新 version。 |
+
+写备注只允许该课次实际 `SessionTeacher`，否则 403 `NOT_SESSION_TEACHER`。读取已发布内容允许该课次实际授课教师或该 offering 当前有效任课教师；同一教学班其他课程的教师即使能看课表，也不能读备注，返回 403 `NOT_OFFERING_TEACHER`。课次完全不在本人可见范围返回 404 `NOT_FOUND`。任何响应都不会返回他人的 draft 内容。
+
+`GET` 的 `previous` 在同一 `CourseOffering` 中筛选，条件是课次 `status=completed`、
+`start_at` 早于当前课次、且至少有一条 published 备注；按 `start_at` 倒序取最近一个课次，
+再返回该课次所有教师已发布内容。当前、更晚、未 completed/cancelled 课次以及同名但不同
+offering 的记录都不进入“上次记录”。排序按上课时间，不按备注发布时间，所以补录旧课不会顶掉
+最近课次。测试中该 GET（含 JWT/教师查询和 previous 查询）固定 8 条查询，不随已发布作者数量增长。
+
+写接口的 `base_version`：本人尚无该课次备注时必须为 0；已有备注时必须等于当前 `version`。
+保存草稿或发布都令 `version+1`；保存草稿不改变 published 快照，发布才更新快照。没有本人备注，
+或三段草稿去掉首尾空白后都为空时，发布返回 409 `NOTHING_TO_PUBLISH`，不创建备注、mutation 或
+ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NOTE_VERSION_CONFLICT`，body 为
+`{code, detail, field_errors, current}`，`current` 是服务器当前 `mine`（没有则 null），客户端据此
+保留本地文本并展示两份内容。
+
+两个写接口都要求 `client_mutation_id`（≤64）。服务在事务内先锁学校 `SchoolSyncState`，再按
+`user+client_mutation_id` 唯一键查/建 `ClientMutation`：同 key 同请求摘要直接返回保存的响应，
+不执行第二次写入；同 key 不同请求返回 409 `MUTATION_KEY_REUSED`；请求摘要覆盖操作类型、课次 ID、
+正文和 `base_version`。保存草稿与发布各写一条 `note` ChangeLog，并与备注和
+`ClientMutation` 同事务提交。自动重试只保存 draft，不会自动 publish，也不改变课次
+`status/actual_hours/version`。
+
 ## 离线同步（B14）
 
 两个接口均需 JWT 且账号关联启用中的教师档案。
 
 | 方法与路径 | 说明 |
 | --- | --- |
-| `GET /api/v1/sync/bootstrap/` | 当前学期的一致快照：`cursor`、`assignment_scope_version`、`term`（与 `terms/{id}/calendar/` 同结构）、`offerings`、`sessions`（`SessionSummary`，含同教学班可见课次及 `is_mine`）、`generated_at`。没有当前学期时 `term=null`、列表为空。不分页。 |
-| `GET /api/v1/sync/changes/?cursor=` | 返回 cursor 之后最多 500 条日志对应的当前状态；`sessions` 只含当前可见课次，不可见课次不泄露存在性；`terms` 只含本校学期。响应含 `next_cursor`、`has_more`、`assignment_scope_version`、`reset_required`。 |
+| `GET /api/v1/sync/bootstrap/` | 当前学期的一致快照：`cursor`、`assignment_scope_version`、`term`（与 `terms/{id}/calendar/` 同结构）、`offerings`、`sessions`（`SessionSummary`，含同教学班可见课次及 `is_mine`）、`notes`（本人全部备注含草稿，加本人可读的已发布备注）、`generated_at`。没有当前学期时 `term=null`、列表为空。不分页。 |
+| `GET /api/v1/sync/changes/?cursor=` | 返回 cursor 之后最多 500 条日志对应的当前状态；`sessions` 只含当前可见课次，不可见课次不泄露存在性；`terms` 只含本校学期；`notes` 对作者返回完整本人备注，对其他教师只返回可读的发布快照。响应含 `next_cursor`、`has_more`、`assignment_scope_version`、`reset_required`。 |
+
+`notes` 的同步口径：作者本人任何保存草稿/发布日志都返回当前完整备注（含 draft）；其他教师只有在其可读且该备注已发布时返回 published 快照，`draft=null`。纯草稿保存日志对他人直接略过且不泄露存在性，但 `next_cursor` 仍推进。若同一页包含某备注的发布日志和后续草稿日志，只返回一次当前发布快照；只有后续草稿日志时，读者已拥有旧发布快照，不再下发重复项。
 
 `cursor` 是字符串形式、客户端不得解析的学校 `last_seq`。bootstrap 在
 `REPEATABLE READ READ ONLY` 事务中读取，cursor 和数据来自同一数据库快照；`generated_at`
 也由该请求生成。changes 的 `next_cursor` 取本页最后一条**原始日志**的 `change_seq`，即使该对象
 被可见性过滤掉也会推进，避免下一条不可见日志永久挡住后续变更。
 
-`reset_required=true` 时 HTTP 仍为 200、`sessions`/`terms` 为空：cursor 非法、超过当前
+`reset_required=true` 时 HTTP 仍为 200、`sessions`/`terms`/`notes` 为空：cursor 非法、超过当前
 `last_seq`，或早于该校仍保留的最小日志序号（`min_seq > cursor + 1`）。客户端应重新 bootstrap，
 并保留本地未同步草稿。同一实体在一页内出现多次时只返回数据库中的最新状态，不回放历史值。
 
-`pytest` 中的查询数测试覆盖 demo 学期与增加规则后的学期：bootstrap 固定为 15 条查询，无
-tombstone 的 changes 页固定为 10 条查询（均含 JWT/教师档案与事务控制），不随课次数量增长；
-含 tombstone 时额外一次 offering 可见性校验，仍是常数查询。
+`pytest` 中的查询数测试覆盖 demo 学期与增加规则后的学期：bootstrap 固定为 16 条查询（B20 增加
+一次 notes 预取），无 tombstone/note 日志的 changes 页固定为 10 条查询（均含 JWT/教师档案与事务
+控制），不随课次数量增长；含 tombstone 时额外一次 offering 可见性校验。含 note 日志时额外固定
+两条（备注当前状态与可读范围），仍不随备注数量增长。
 
 ## 消息与推送设备骨架（B14）
 

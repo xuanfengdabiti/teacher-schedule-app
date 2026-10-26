@@ -43,6 +43,9 @@ from apps.scheduling.sync_serializers import (
     SyncBootstrapResponseSerializer,
     SyncChangesResponseSerializer,
 )
+from apps.teaching.models import TeachingNote
+from apps.teaching.selectors import readable_notes_for_term, readable_notes_queryset
+from apps.teaching.serializers import sync_note_payload
 
 CHANGES_PAGE_SIZE = 500
 _CURSOR_RE = re.compile(r"^[0-9]+$")
@@ -103,11 +106,13 @@ def build_bootstrap_payload(teacher: TeacherProfile) -> dict:
                 many=True,
                 context={"teacher": teacher},
             ).data
+            note_data = [sync_note_payload(note, teacher) for note in readable_notes_for_term(teacher, term)]
             tzinfo = term.tzinfo
         else:
             term_data = None
             offering_data = []
             session_data = []
+            note_data = []
             tzinfo = ZoneInfo(settings.TIME_ZONE)
 
         payload = {
@@ -116,6 +121,7 @@ def build_bootstrap_payload(teacher: TeacherProfile) -> dict:
             "term": term_data,
             "offerings": offering_data,
             "sessions": session_data,
+            "notes": note_data,
             "generated_at": generated_at.astimezone(tzinfo).isoformat(),
         }
     # Return only after the read-only snapshot commits; no lazy queryset or
@@ -131,6 +137,7 @@ def _reset_payload(teacher: TeacherProfile, last_seq: int) -> dict:
         "reset_required": True,
         "sessions": [],
         "terms": [],
+        "notes": [],
     }
 
 
@@ -196,6 +203,49 @@ def _term_data_for_logs(teacher: TeacherProfile, logs: list[ChangeLog]) -> list[
     return [by_id[str(log.entity_id)] for log in logs if not log.tombstone and str(log.entity_id) in by_id]
 
 
+def _note_data_for_logs(
+    teacher: TeacherProfile,
+    logs: list[ChangeLog],
+    page_versions: set[tuple[object, int]],
+) -> list[dict]:
+    """Serialize note logs without leaking another author's draft.
+
+    A draft save after a published version must not produce a shared sync item.
+    We therefore require the publish version itself to be present in this raw
+    log page when the reader is not the author.  The cursor still advances over
+    the skipped draft log.
+    """
+    active_logs = [log for log in logs if not log.tombstone]
+    if not active_logs:
+        return []
+    notes = list(
+        TeachingNote.objects.filter(pk__in=[log.entity_id for log in active_logs]).select_related(
+            "author",
+            "session__offering__term",
+            "session__offering__course",
+        )
+    )
+    by_id = {note.id: note for note in notes}
+    readable_ids = set(readable_notes_queryset(teacher).filter(pk__in=by_id).values_list("id", flat=True))
+    result: list[dict] = []
+    for log in active_logs:
+        note = by_id.get(log.entity_id)
+        if note is None:
+            continue
+        if note.author_id == teacher.id:
+            result.append(sync_note_payload(note, teacher))
+            continue
+        if note.published_at is None or note.id not in readable_ids:
+            continue
+        published_version = note.published_version
+        if published_version is None or (note.id, published_version) not in page_versions:
+            # A pure later draft edit is private to its author; the reader
+            # already has the previous published snapshot.
+            continue
+        result.append(sync_note_payload(note, teacher))
+    return result
+
+
 def build_changes_payload(teacher: TeacherProfile, raw_cursor: str | None) -> dict:
     """Return at most 500 raw log entries, de-duplicated by entity for output."""
     last_seq = _last_seq(teacher.school_id)
@@ -228,6 +278,8 @@ def build_changes_payload(teacher: TeacherProfile, raw_cursor: str | None) -> di
     latest = _latest_logs(page)
     session_logs = [log for log in latest if log.entity_type == ChangeEntityType.SESSION]
     term_logs = [log for log in latest if log.entity_type == ChangeEntityType.TERM]
+    note_logs = [log for log in latest if log.entity_type == ChangeEntityType.NOTE]
+    page_note_versions = {(log.entity_id, log.version) for log in page if log.entity_type == ChangeEntityType.NOTE}
 
     return {
         "next_cursor": next_cursor,
@@ -236,6 +288,7 @@ def build_changes_payload(teacher: TeacherProfile, raw_cursor: str | None) -> di
         "reset_required": False,
         "sessions": _session_data_for_logs(teacher, session_logs),
         "terms": _term_data_for_logs(teacher, term_logs),
+        "notes": _note_data_for_logs(teacher, note_logs, page_note_versions),
     }
 
 

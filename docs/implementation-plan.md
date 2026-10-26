@@ -255,7 +255,7 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 调课 | `POST sessions/{id}/reschedule-options/` | 返回分组候选、数据完整性和快照版本 |
 | 申请 | `POST reschedule-requests/`、`GET reschedule-requests/?scope=mine\|related&status=`、`POST reschedule-requests/{id}/submit/`、`POST reschedule-requests/{id}/withdraw/` | 创建字段 `session_id`、`target_date`、`target_start_period`、`target_end_period`、`target_classroom_id`、`reason`、`submit`（默认 true）；列表按 created_at 倒序、DRF 分页 |
 | 审批 | Admin 三个 action 调用服务：普通批准并生效、驳回、登记学校强制安排 | 不向普通教师开放审批 API；强制安排必须填写学校审批编号/依据 |
-| 备注 | `GET sessions/{id}/notes/`、`PUT sessions/{id}/notes/mine/`、`POST sessions/{id}/notes/mine/publish/` | PUT 仅存 draft，显式 publish 更新发布快照；带 base_version |
+| 备注 | `GET sessions/{id}/notes/`、`PUT sessions/{id}/notes/mine/`、`POST sessions/{id}/notes/mine/publish/` | GET 返回 `mine/others/previous`；PUT 只存三段草稿，显式 publish 复制发布快照；写请求的 `client_mutation_id` 与 `base_version` 必填；无可发布内容返回 409 `NOTHING_TO_PUBLISH` |
 | 交接 | `POST handoffs/`、`GET handoffs/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 显式确认；发送者仅可撤回未确认项；重复确认返回同一结果 |
 | 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | 负责人保存章节与分配 |
 | 授课确认 | `PUT sessions/{id}/completion/` | status、actual_hours、章节分配、base_version |
@@ -283,6 +283,15 @@ B14 的同步与消息合同：
 - 消息列表使用服务端生成的不透明游标（created_at + id），默认 20 条、最多 50 条；`unread_count` 是当前未读总数。`POST notifications/{id}/read/` 重复调用返回同一 `read_at`，他人消息 404。
 - `DELETE devices/{installation_id}/` 只要求登录，不要求启用中的教师档案；设备属于账号，身份 pending 或档案停用时退出登录仍必须能解绑。接口幂等返回 204；实现上保留设备行并置 `enabled=false`、清空推送客户端 ID，以保留 PROTECT 的历史投递记录。停用账号时在同一事务内解除该账号全部设备；同一安装 ID 被另一账号绑定时转移给当前账号，避免旧账号消息推送到新用户手机。
 - B14 本切片不实现真实推送通道、投递处理命令、重试和模拟发送（归 B40/B03）；`notify` 只创建站内消息和 `pending` 投递记录，没有真实通道时不把任何记录标记为 sent。所有修改课次、学期、校历的写入口必须在同一事务内调用 `record_changes`。
+
+B20 教学备注合同：
+
+- `GET sessions/{id}/notes/` 返回 `mine`、`others`、`previous`。`mine` 为本人该课次备注（`id/version/draft/published/published_at/published_version/updated_at`），没有则为 null；`others` 只含该课次其他教师已发布快照 `{author:{id,name},published,published_at,published_version}`，任何接口都不返回他人的 `draft`。`previous.session` 为简版 `{id,date,start_period,end_period,course_name}`，`previous.notes` 为该课次所有教师已发布内容 `{author,published,published_at}`；没有则 `previous=null`。
+- 读取权限只限该课次 `SessionTeacher` 或该 offering 的当前有效 `TeachingAssignment` 教师；同一教学班其他课程的教师不能读取。写入只限该课次 `SessionTeacher`。课次完全不可见返回 404 `NOT_FOUND`；仅同教学班可见但无备注权限返回 403 `NOT_OFFERING_TEACHER`；可用课次但非实际授课教师写入返回 403 `NOT_SESSION_TEACHER`。所有接口先通过 `require_active_teacher`。
+- `previous` 在同一 `CourseOffering` 内按课次实际 `start_at` 倒序，选择 `status=completed`、`start_at` 早于当前课次且有至少一条已发布备注的最近课次；当前/更晚/未 completed/cancelled 课次及仅同名但不同 offering 的记录都不能成为“上次”。补录旧课按上课时间排序，不按备注发布时间排序。
+- `PUT .../mine/` body 为 `covered`、`unfinished`、`next_plan`、`base_version`、`client_mutation_id`（全部必填，文本各 ≤5000）；不存在备注时 `base_version=0`，存在时必须等于当前 `version`。`POST .../publish/` body 为 `base_version`、`client_mutation_id`，复制当前草稿到 `published_*` 快照，令 `published_version` 为新 version 且 `published_at=now`。没有本人备注，或三段草稿去掉首尾空白后都为空时不发布，返回 409 `NOTHING_TO_PUBLISH` 且不创建备注/mutation/ChangeLog；已发布后清空草稿再发布也拒绝，不能用空内容覆盖发布快照。保存草稿或发布都令 `version+1`，都不修改课次 `status`、`actual_hours` 或 `version`。
+- 版本不符返回 409 `NOTE_VERSION_CONFLICT`，body 统一含 `{code,detail,field_errors,current}`，`current` 为服务器当前 `mine` 或 null，供客户端保留本地文本与服务器文本对照（A18）。同一账号同一 `client_mutation_id`、同一请求摘要的重试直接返回原响应且只写一次；同 key 不同请求返回 409 `MUTATION_KEY_REUSED`。请求摘要覆盖操作类型、课次 ID、正文和 `base_version`。
+- 每次保存草稿和发布都在同一事务写一条 `note` ChangeLog（entity_id=备注 ID、offering=课次 offering、version=备注 version）。`sync/changes/` 的 `notes` 对作者返回完整本人备注（含草稿），对其他教师只在可读且该备注已发布、且本页日志包含对应发布版本时返回发布快照；纯草稿保存日志对他人略过但 cursor 照常推进。`sync/bootstrap/` 的 `notes` 为当前学期本人全部备注（含草稿）加本人可读的已发布备注，查询数与备注数量无关。
 
 错误示例：
 
