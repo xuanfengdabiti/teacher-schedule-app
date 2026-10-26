@@ -9,6 +9,7 @@ from apps.scheduling.serializers import (
     SessionSummarySerializer,
     TermCalendarSerializer,
 )
+from apps.teaching.serializers import SyncTeachingNoteSerializer
 
 
 class SyncBootstrapResponseSerializer(serializers.Serializer):
@@ -17,6 +18,7 @@ class SyncBootstrapResponseSerializer(serializers.Serializer):
     term = TermCalendarSerializer(allow_null=True)
     offerings = OfferingSerializer(many=True)
     sessions = SessionSummarySerializer(many=True)
+    notes = SyncTeachingNoteSerializer(many=True)
     generated_at = serializers.DateTimeField(default_timezone=None)
 
 
@@ -29,3 +31,4 @@ class SyncChangesResponseSerializer(serializers.Serializer):
     # the concrete shape depends on the current database row, not the log entry.
     sessions = serializers.ListField(child=serializers.DictField())
     terms = TermCalendarSerializer(many=True)
+    notes = SyncTeachingNoteSerializer(many=True)

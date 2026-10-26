@@ -408,6 +408,7 @@ class SchoolSyncState(TimeStampedUUIDModel):
 class ChangeEntityType(models.TextChoices):
     SESSION = "session", _("课次")
     TERM = "term", _("学期")
+    NOTE = "note", _("教学备注")
 
 
 class RescheduleStatus(models.TextChoices):
