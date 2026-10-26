@@ -78,6 +78,9 @@ uv run --env-file .env python manage.py runserver
 - API：<http://127.0.0.1:8000/api/v1/health/>
 - OpenAPI：<http://127.0.0.1:8000/api/v1/schema/>
 - 账号接口：见下文“账号与认证”
+- 学期与校历：`GET /api/v1/terms/`、`GET /api/v1/terms/{id}/calendar/`
+- 课表：`GET /api/v1/sessions/`、`GET /api/v1/sessions/{id}/`
+- 教学班开课：`GET /api/v1/offerings/`
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - Admin：<http://127.0.0.1:8000/admin/>
 
@@ -223,12 +226,14 @@ backend/
 │   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态
 │       ├── calendar.py  # 教学周与规则展开（纯函数，不查数据库）
 │       ├── services.py  # 课次生成事务服务（统一锁顺序）
+│       ├── selectors.py # B13 可见范围、预取与当前学期查询
 │       ├── reschedule_options.py # 只读调课候选、冲突和覆盖检查
-│       ├── serializers.py        # 调课候选请求/响应/错误 schema
-│       ├── views.py     # 调课候选查询接口与课次权限
+│       ├── serializers.py        # 课表读取、调课候选请求/响应/错误 schema
+│       ├── views.py     # 课表读取、调课候选查询接口
+│       ├── urls.py      # 课表读取与调课候选路由
 │       ├── admin.py
 │       ├── migrations/
-│       └── tests/       # 样例学期 fixture 与生成/约束/Admin 测试
+│       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
 ├── manage.py
 ├── pyproject.toml
 ├── uv.lock
@@ -244,9 +249,50 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 - `ClassSession` 在 Admin 中仅可查看（不能新增、修改、删除）：完成量更正需要原因并走 B22 教学服务，正式课表变更走 B31 统一服务。
 - 校历 `cancel`/`custom`/`replace` 目标日上的基础课次保留为 `cancelled`，不删除。
 
+## 课表查询（B13）
+
+以下接口均需 JWT，且账号必须关联启用中的教师档案。可见课次由
+`apps.scheduling.selectors.visible_sessions_for_teacher` 统一决定：本人是该课次的
+`SessionTeacher`、本人是该 offering 的有效 `TeachingAssignment` 教师，或本人有效任课于该课次所属
+教学班的任一 offering 时可见。有效任课关系指 `effective_until` 为空或晚于学校时区下的今天；
+`effective_from` 不限制，即将开始的任课也可提前查看。`is_mine` 只表示第一种情况；任课关系结束后，
+本人作为 `SessionTeacher` 上过的课次仍可见。不在可见范围的课次详情返回 404，不用 403 暴露对象
+存在性。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/terms/` | 本校全部学期，按开始日期倒序；`is_current` 按该学期学校时区判断 |
+| `GET /api/v1/terms/{id}/calendar/` | 学期字段、`periods`、`exceptions` 与 `weeks`；一个学期一套节次，不再提供 `period-schemes/` |
+| `GET /api/v1/sessions/` | 日期范围内可见课次；见下方参数说明，不分页 |
+| `GET /api/v1/sessions/{id}/` | 课次摘要加计划/实际学时、完成时间、有效选课人数、课程目标学时与负责人 |
+| `GET /api/v1/offerings/` | 本人任课及同教学班其他 offering；DRF 标准分页，page_size 50 |
+
+`sessions/` 的查询参数：
+
+- `from`、`to`：学校本地日期，半开区间 `[from, to)`，必填，跨度 1–42 天；缺失、倒置或超限返回
+  400 `INVALID_DATE_RANGE`。
+- `scope`：`mine`（默认，只返回 `is_mine` 课次）、`offering`（需 `offering_id`）、
+  `teaching_class`（需 `teaching_class_id`）。指定对象不可见时返回 404。
+- `include_cancelled`：默认 true，周课表据此显示“已取消”；传 false 时排除已取消课次。
+
+列表响应的 `term` 取 `from` 所在学期；`from` 不在任何学期内时返回 `term=null` 和空
+`results`。课次按 `start_at`、课程代码稳定排序。`date`、`weekday`、`teaching_week` 均按课次
+**实际**学校本地日期计算；因此 2026-10-05 的停课/调休安排实际在 10-10 上课时，返回
+`date=2026-10-10`、`weekday=6`、`teaching_week=5`（该日期确实是第 5 周周六），
+`origin_teaching_date=2026-10-05`、`is_moved=true`。`is_moved` 在存在原始教学日期且实际日期或
+开始节次与原始值不同时为 true。
+
+`offerings/` 的 `term_id` 可选；默认当前学期，没有当前学期则返回空页。`is_assigned` 表示本人是否
+在该 offering 任课，同教学班其他课程为 false。旧计划中的
+`GET /offerings/{id}/sessions/` 由 `GET /sessions/?scope=offering&offering_id=` 替代。
+
+读接口使用 `select_related` / `prefetch_related` 固定查询数：`scope=teaching_class` 的周课表在
+一周或六周范围均为 6 条查询（含 JWT 用户与教师档案查询），不随课次数增长。`pytest -m perf`
+用 20,000 课次规模验证 `scope=teaching_class` 一周请求。
+
 ## 调课候选查询（B30）
 
-`POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的 `TeachingAssignment` 教师可查询；未登录返回 401，非任课教师返回 403，未关联教师档案返回 403 `TEACHER_NOT_LINKED`，教师档案停用返回 403 `TEACHER_DISABLED`，课次不存在返回 404。
+`POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的有效 `TeachingAssignment` 教师可查询；未登录返回 401，非任课教师返回 403，未关联教师档案返回 403 `TEACHER_NOT_LINKED`，教师档案停用返回 403 `TEACHER_DISABLED`，课次不存在返回 404。
 
 请求字段：`date_from`、`date_until`（半开区间；默认今天至 `date_from + 14 天`）、`allowed_block_codes`、`classroom_ids`、`allow_weekend`。源课次非 `scheduled` 返回 409 `SESSION_NOT_RESCHEDULABLE`；日期区间无效返回 400 `INVALID_DATE_RANGE`，两者都使用 `{"code", "detail", "field_errors"}`。OpenAPI 合同见 `/api/v1/schema/`。
 

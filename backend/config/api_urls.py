@@ -4,7 +4,6 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView
 from rest_framework.permissions import AllowAny
 
-from apps.scheduling.views import reschedule_options
 from config.views import health
 
 urlpatterns = [
@@ -18,9 +17,5 @@ urlpatterns = [
         name="api-schema",
     ),
     path("", include("apps.accounts.urls")),
-    path(
-        "sessions/<uuid:session_id>/reschedule-options/",
-        reschedule_options,
-        name="session-reschedule-options",
-    ),
+    path("", include("apps.scheduling.urls")),
 ]

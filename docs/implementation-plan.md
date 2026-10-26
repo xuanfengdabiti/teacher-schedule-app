@@ -248,10 +248,10 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 登录态 | `POST auth/token/refresh/`、`GET me/`、`PATCH me/` | me 含 teacher_status/current_term |
 | 头像 | `POST me/avatar/` | multipart 上传图片；返回头像 URL，正式服务持久化存储 |
 | 注销 | `POST me/deactivation/` | 注销/停用申请，不删除授课历史 |
-| 基础 | `GET terms/`、`GET terms/{id}/calendar/`、`GET period-schemes/` | 校历和节次配置 |
-| 课表 | `GET sessions/?from=&to=&scope=mine` | 教学周转具体日期后查询 |
-| 教学班 | `GET offerings/`、`GET offerings/{id}/sessions/` | 任课范围；班级周课表 |
-| 课次 | `GET sessions/{id}/` | 最近共享记录、授课教师、当前版本 |
+| 基础 | `GET terms/`、`GET terms/{id}/calendar/` | 校历、节次与教学周；一个学期一套节次，`calendar/` 已包含 periods/weeks，不单独提供 `period-schemes/` |
+| 课表 | `GET sessions/?from=&to=&scope=mine` | `from`/`to` 为学校本地日期半开区间 `[from,to)`，必填且跨度 1–42 天；`scope` 为 `mine` / `offering` / `teaching_class`；日期范围已受限，不分页 |
+| 教学班 | `GET offerings/` | 任课范围与同教学班开课；DRF 标准分页，page_size 50。班级周课表改由 `GET sessions/?scope=teaching_class&teaching_class_id=` 提供 |
+| 课次 | `GET sessions/{id}/` | 授课教师、教室、当前版本、学时与有效选课人数；不在本人可见范围返回 404 |
 | 调课 | `POST sessions/{id}/reschedule-options/` | 返回分组候选、数据完整性和快照版本 |
 | 申请 | `POST reschedule-requests/`、`GET reschedule-requests/`、`POST reschedule-requests/{id}/withdraw/` | source_session_id + candidate + reason |
 | 审批 | Admin action 调用服务；将来可加 `POST reschedule-requests/{id}/decision/` | 不向普通教师开放 |
@@ -267,6 +267,14 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 导入 | Admin 上传/预览/提交；将来可加 `imports/` API | 先复用管理后台，不先做移动导入工作台 |
 
 普通列表使用 DRF 标准分页 `{count,next,previous,results}`；消息/同步使用各自定义的 cursor，不要在不同接口随意混用。对象 GET 直接返回对象，避免所有响应再套 `success/data` 多一层。
+
+B13 课表读取接口按以下方式收敛，旧计划中的 `period-schemes/` 与 `offerings/{id}/sessions/` 不再单独实现：
+
+- 学期 `calendar/` 同时返回学期字段、按序号排列的 `periods`、`exceptions` 和 1..教学周数的 `weeks`（含每周周一/周日）；App 直接使用服务端教学周，不在设备上自行算周次。
+- `sessions/` 以 `from`/`to` 的学校本地日期半开区间筛选。`scope=mine` 只返回本人实际上课的课次；`scope=offering` 需 `offering_id`；`scope=teaching_class` 需 `teaching_class_id`。指定对象不在本人可见范围时统一返回 404，避免暴露存在性。该接口不分页：最多 42 天，数据量与周课表一致，分页反而会让一次周视图产生多次往返。
+- “我的课”“教学班课表”“全部可见课”共用同一批课次，只改变筛选条件；`offerings/` 只提供开课筛选列表，不再嵌套课次接口。
+- 可见范围由 scheduling selector 统一计算：课次实际授课教师、该 offering 的有效任课教师、以及同教学班任一 offering 的有效任课教师可见；`is_mine` 仅表示本人是该课次实际授课教师。有效任课关系指 `effective_until` 为空或晚于学校时区下的今天，`effective_from` 在未来也提前授予可见范围；关系结束后本人已实际授课的课次仍可见。课次详情不在可见范围时返回 404。
+- 周课表要显示“已取消”，因此 `sessions/` 的 `include_cancelled` 默认 true；需要只排有效课时可传 false。
 
 错误示例：
 
