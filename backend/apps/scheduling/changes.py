@@ -321,6 +321,13 @@ def apply_session_change(
             ],
         )
 
+        # Local import: teaching.handoffs imports scheduling models/selectors.
+        # A module-level import here would create a scheduling <-> teaching
+        # import cycle at Django startup.
+        from apps.teaching.handoffs import notify_pending_handoffs_for_moved_session
+
+        notify_pending_handoffs_for_moved_session(session, change)
+
         body = _format_change_message(before, after, forced=forced)
         teachers = list(
             SessionTeacher.objects.filter(session=session).select_related("teacher").order_by("teacher__teacher_no")

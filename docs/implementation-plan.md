@@ -256,7 +256,7 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 申请 | `POST reschedule-requests/`、`GET reschedule-requests/?scope=mine\|related&status=`、`POST reschedule-requests/{id}/submit/`、`POST reschedule-requests/{id}/withdraw/` | 创建字段 `session_id`、`target_date`、`target_start_period`、`target_end_period`、`target_classroom_id`、`reason`、`submit`（默认 true）；列表按 created_at 倒序、DRF 分页 |
 | 审批 | Admin 三个 action 调用服务：普通批准并生效、驳回、登记学校强制安排 | 不向普通教师开放审批 API；强制安排必须填写学校审批编号/依据 |
 | 备注 | `GET sessions/{id}/notes/`、`PUT sessions/{id}/notes/mine/`、`POST sessions/{id}/notes/mine/publish/` | GET 返回 `mine/others/previous`；PUT 只存三段草稿，显式 publish 复制发布快照；写请求的 `client_mutation_id` 与 `base_version` 必填；无可发布内容返回 409 `NOTHING_TO_PUBLISH` |
-| 交接 | `POST handoffs/`、`GET handoffs/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 显式确认；发送者仅可撤回未确认项；重复确认返回同一结果 |
+| 交接 | `GET handoffs/prefill/?source_session_id=`、`POST handoffs/`、`GET handoffs/?box=inbox\|sent&status=`、`GET handoffs/{id}/`、`POST handoffs/{id}/read/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 每条交接一个接收人；发送时固定内容快照与备注发布版本；read 不等于确认；重复确认/撤回幂等；错误码见下文 |
 | 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | 负责人保存章节与分配 |
 | 授课确认 | `PUT sessions/{id}/completion/` | status、actual_hours、章节分配、base_version |
 | 教室 | `GET classrooms/`、`GET classrooms/{id}/usage/?date=` | 使用记录及前后课 |
@@ -292,6 +292,16 @@ B20 教学备注合同：
 - `PUT .../mine/` body 为 `covered`、`unfinished`、`next_plan`、`base_version`、`client_mutation_id`（全部必填，文本各 ≤5000）；不存在备注时 `base_version=0`，存在时必须等于当前 `version`。`POST .../publish/` body 为 `base_version`、`client_mutation_id`，复制当前草稿到 `published_*` 快照，令 `published_version` 为新 version 且 `published_at=now`。没有本人备注，或三段草稿去掉首尾空白后都为空时不发布，返回 409 `NOTHING_TO_PUBLISH` 且不创建备注/mutation/ChangeLog；已发布后清空草稿再发布也拒绝，不能用空内容覆盖发布快照。保存草稿或发布都令 `version+1`，都不修改课次 `status`、`actual_hours` 或 `version`。
 - 版本不符返回 409 `NOTE_VERSION_CONFLICT`，body 统一含 `{code,detail,field_errors,current}`，`current` 为服务器当前 `mine` 或 null，供客户端保留本地文本与服务器文本对照（A18）。同一账号同一 `client_mutation_id`、同一请求摘要的重试直接返回原响应且只写一次；同 key 不同请求返回 409 `MUTATION_KEY_REUSED`。请求摘要覆盖操作类型、课次 ID、正文和 `base_version`。
 - 每次保存草稿和发布都在同一事务写一条 `note` ChangeLog（entity_id=备注 ID、offering=课次 offering、version=备注 version）。`sync/changes/` 的 `notes` 对作者返回完整本人备注（含草稿），对其他教师只在可读且该备注已发布、且本页日志包含对应发布版本时返回发布快照；纯草稿保存日志对他人略过但 cursor 照常推进。`sync/bootstrap/` 的 `notes` 为当前学期本人全部备注（含草稿）加本人可读的已发布备注，查询数与备注数量无关。
+
+B21 交接合同（后端部分）：
+
+- `GET handoffs/prefill/?source_session_id=` 只读，不创建交接、消息或去重记录。`recipients` 为该 offering 当前有效 `TeachingAssignment` 教师（排除本人），每项 `{id,name,is_suggested}`；`is_suggested` 标记同一 offering 中来源课次之后第一个 `scheduled` 课次的 `SessionTeacher`（排除本人）。`suggested_target_session` 为该课次简版 `{id,date,start_period,end_period}`，没有则 null。`content` 只取本人在来源课次上已发布备注的“未完成内容”和“下次计划”，用中文小标题分段；没有发布备注或两段都为空时为空字符串。`note_id`、`note_published_version` 同时返回；没有发布备注时为 null，有发布备注但两段都为空时仍返回该备注的 ID 和版本。
+- `POST handoffs/` body 为 `offering_id`、`recipient_ids`（1–10 个，自动去重）、`content`、`source_session_id`、`target_session_id`、`note_id`；后三者可空。发送人必须是该 offering 当前有效任课教师，或来源课次的 `SessionTeacher`；接收人必须是该 offering 当前有效任课教师且不能是发送人，接收人无关联账号也可发送（只落站内消息）。来源/目标课次必须属于该 offering。关联备注只能选发送人本人在来源课次上已发布的备注，并保存当时的 `published_version`；`content_snapshot` 以发送内容为准，之后修改/重新发布原备注不改变交接（A14）。任一接收人、课次或备注不合法时整体失败，不创建部分交接。一个接收人一条 `pending` 记录，201 返回创建的交接列表。
+- `GET handoffs/?box=inbox\|sent&status=`：`inbox` 为本人收到的交接，`sent` 为本人发出的交接，默认 `inbox`；`status` 可选 `pending/acknowledged/withdrawn`。按 `created_at`、`id` 倒序，DRF 标准分页 `{count,next,previous,results}`。项含 `id`、`offering{id,course_name,teaching_class{id,name}}`、`sender{id,name}`、`recipient{id,name}`、`source_session`/`target_session` 简版、`content_snapshot`、`note_published_version`、`status`、`read_at`、`acknowledged_at`、`withdrawn_at`、`created_at`、`can_acknowledge`、`can_withdraw`。
+- `GET handoffs/{id}/` 仅发送人或接收人可看，其他人 404；GET 不写 `read_at`。`POST .../read/` 仅接收人，只在 `read_at` 为空时写入，**不改变 status**（已读不等于确认）。`POST .../acknowledge/` 仅接收人，`pending → acknowledged` 并写 `acknowledged_at`，`read_at` 为空时一并写入，同时给发送人发 `handoff_acknowledged`；重复确认返回同一 `acknowledged_at` 且不重复通知；已撤回返回 409 `HANDOFF_WITHDRAWN`。`POST .../withdraw/` 仅发送人，只能撤回 `pending`；已确认返回 409 `HANDOFF_ALREADY_ACKNOWLEDGED`，重复撤回幂等；撤回不发消息。所有状态变更对交接行 `select_for_update`，避免同时确认和撤回都成功。
+- 错误体统一 `{code,detail,field_errors}`。400：`VALIDATION_ERROR`、`INVALID_RECIPIENT`、`INVALID_NOTE`、`INVALID_SESSION`；403：`NOT_OFFERING_TEACHER`、`NOT_HANDOFF_SENDER`、`NOT_HANDOFF_RECIPIENT`；404：`NOT_FOUND`；409：`HANDOFF_WITHDRAWN`、`HANDOFF_ALREADY_ACKNOWLEDGED`。未关联账号/停用档案仍返回既有 403 `TEACHER_NOT_LINKED`/`TEACHER_DISABLED`。
+- 正式调课后，`scheduling.changes.apply_session_change` 在同一事务内调用 `teaching.handoffs.notify_pending_handoffs_for_moved_session`：对 `target_session=该课次` 且仍 `pending` 的交接，给发送人发 `handoff_check` 站内消息，事件键 `handoff:{id}:check:{change.id}`，说明目标课次新时间并请其核对接收人；不自动改接收人、不自动转交，同一 change 重放不重复消息。
+- 交接不写 ChangeLog，也不进入离线队列；发送、已读、确认、撤回都需要在线以服务端结果为准（domain-design 9.2）。本切片不提供修改交接正文的接口，补充说明用新交接。
 
 错误示例：
 
@@ -358,7 +368,7 @@ OpenAPI 是前后端合同的正式输出，本文是设计输入。接口字段
 | --- | --- | --- | --- |
 | 上课前提醒 | 可选，不制造大量历史消息 | 本地，默认提前 15 分钟可调 | session_id + version，跳课次 |
 | 正式课表变更 | 必须 | 远程推送 | 变更 ID，跳当前课次与前后变化 |
-| 收到交接/确认 | 必须 | 远程推送，可关闭 | handoff_id + 事件，跳交接 |
+| 收到交接/确认/调课后核对 | 必须 | 远程推送，可关闭 | handoff_id + 事件（核对含 change_id），跳交接 |
 | 调课通过/驳回 | 必须 | 远程推送 | request_id + 状态版本 |
 | 协查请求/回复 | 必须 | 远程推送 | inquiry/reply ID |
 | 教学计划落后 | 每日摘要 | 默认站内，教师可开系统提醒 | offering_id+日期，跳该课程计划 |

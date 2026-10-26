@@ -22,6 +22,7 @@ class NotificationType(models.TextChoices):
     RESCHEDULE_RESULT = "reschedule_result", _("调课结果")
     HANDOFF_RECEIVED = "handoff_received", _("收到教学交接")
     HANDOFF_ACKNOWLEDGED = "handoff_acknowledged", _("教学交接已确认")
+    HANDOFF_CHECK = "handoff_check", _("核对交接接收人")
     INQUIRY_RECEIVED = "inquiry_received", _("收到协查请求")
     INQUIRY_REPLIED = "inquiry_replied", _("协查收到回复")
     PLAN_BEHIND = "plan_behind", _("教学计划落后")

@@ -6,6 +6,7 @@ import pytest
 
 from apps.scheduling.services import generate_sessions_for_term
 from apps.scheduling.tests.demo_data import DemoTermData, build_demo_term
+from apps.teaching.tests.handoff_helpers import HandoffFlow, make_handoff_flow
 
 
 @pytest.fixture
@@ -30,3 +31,9 @@ def plain_demo(demo_term) -> DemoTermData:
     demo_term.term.calendar_exceptions.all().delete()
     generate_sessions_for_term(demo_term.term)
     return demo_term
+
+
+@pytest.fixture
+def handoff_flow(generated_demo) -> HandoffFlow:
+    """Two linked teachers who both actively teach the crime offering."""
+    return make_handoff_flow(generated_demo)
