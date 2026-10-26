@@ -51,8 +51,10 @@ class ImportBatchAdmin(admin.ModelAdmin):
         "file_hash",
         "source_updated_at",
         "preview_base_schedule_version",
+        "preview_fingerprint",
         "row_counts",
         "errors_json",
+        "change_summary",
         "uploaded_by",
         "committed_by",
         "committed_at",
@@ -86,12 +88,19 @@ class ImportBatchAdmin(admin.ModelAdmin):
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
+        batch = ImportBatch.objects.filter(pk=object_id).first()
         extra_context["can_commit"] = self._can_commit(request, object_id)
+        extra_context["preview_errors"] = [
+            item for item in (batch.errors_json if batch else []) if item.get("level", "error") == "error"
+        ]
+        extra_context["preview_warnings"] = [
+            item for item in (batch.errors_json if batch else []) if item.get("level") == "warning"
+        ]
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def _can_commit(self, request, object_id) -> bool:
         batch = ImportBatch.objects.filter(pk=object_id).first()
-        return bool(batch and batch.status == ImportStatus.PREVIEWED and not batch.errors_json)
+        return bool(batch and batch.status == ImportStatus.PREVIEWED and not batch.has_errors)
 
     def add_view(self, request, form_url="", extra_context=None):
         if not self.has_add_permission(request):
@@ -131,13 +140,15 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 if result.has_errors:
                     self.message_user(
                         request,
-                        f"预览完成，共 {len(result.issues)} 条错误；修复文件后重新上传。",
+                        f"预览完成，共 {len(result.errors)} 条错误、{len(result.warnings)} 条警告；"
+                        "修复错误后重新上传。",
                         level=messages.WARNING,
                     )
                 else:
                     self.message_user(
                         request,
-                        f"预览完成：预计新建 {result.expected_new_sessions} 个规则课次，未发现错误。",
+                        f"预览完成：预计新建 {result.expected_new_sessions} 个规则课次，"
+                        f"{len(result.warnings)} 条警告，未发现错误。",
                         level=messages.SUCCESS,
                     )
             return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[batch.pk]))
@@ -170,7 +181,10 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 level = messages.WARNING if result.has_errors else messages.SUCCESS
                 self.message_user(
                     request,
-                    (f"预览完成：{len(result.issues)} 条错误，预计新建 {result.expected_new_sessions} 个规则课次。"),
+                    (
+                        f"预览完成：{len(result.errors)} 条错误、{len(result.warnings)} 条警告，"
+                        f"预计新建 {result.expected_new_sessions} 个规则课次。"
+                    ),
                     level=level,
                 )
         return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[object_id]))
@@ -191,9 +205,9 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     (
-                        f"导入已提交：新建 {result.created} 个对象，生成 {result.sessions_generated} 个课次，"
-                        f"匹配 {result.sessions_matched} 条 sessions 行，更新完成量 "
-                        f"{result.sessions_changed} 条。"
+                        f"导入已提交：新建 {result.created} 个对象，更新 {result.changed} 个对象，"
+                        f"生成 {result.sessions_generated} 个课次，匹配 {result.sessions_matched} 条 "
+                        f"sessions 行，更新完成量 {result.sessions_changed} 条。"
                     ),
                     level=messages.SUCCESS,
                 )

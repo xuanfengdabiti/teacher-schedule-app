@@ -29,13 +29,14 @@
       {% if original.row_counts %}
         <table style="width:100%">
           <thead>
-            <tr><th>文件</th><th>new</th><th>unchanged</th><th>error</th></tr>
+            <tr><th>文件</th><th>new</th><th>changed</th><th>unchanged</th><th>error</th></tr>
           </thead>
           <tbody>
             {% for file_name, counts in original.row_counts.items %}
               <tr>
                 <td>{{ file_name }}</td>
                 <td>{{ counts.new }}</td>
+                <td>{{ counts.changed }}</td>
                 <td>{{ counts.unchanged }}</td>
                 <td>{{ counts.error }}</td>
               </tr>
@@ -46,8 +47,105 @@
         <p>尚未生成预览统计。</p>
       {% endif %}
 
-      {% if original.errors_json %}
-        <h2 style="margin-top:20px">错误与待处理项</h2>
+      <h2 style="margin-top:20px">变更明细</h2>
+      {% if original.change_summary.fields %}
+        <div style="overflow-x:auto">
+          <table style="width:100%; min-width: 900px">
+            <thead>
+              <tr>
+                <th>文件</th><th>工作表</th><th>行</th><th>对象</th>
+                <th>字段</th><th>旧值</th><th>新值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for change in original.change_summary.fields %}
+                <tr>
+                  <td>{{ change.file|default:"—" }}</td>
+                  <td>{{ change.sheet|default:"—" }}</td>
+                  <td>{{ change.row }}</td>
+                  <td><code>{{ change.object }}</code></td>
+                  <td><code>{{ change.field }}</code></td>
+                  <td><code>{{ change.old }}</code></td>
+                  <td><code>{{ change.new }}</code></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>本次预览没有字段级更新。</p>
+      {% endif %}
+
+      <h3 style="margin-top:16px">任课范围变化</h3>
+      {% if original.change_summary.assignments %}
+        <div style="overflow-x:auto">
+          <table style="width:100%; min-width: 1000px">
+            <thead>
+              <tr>
+                <th>文件</th><th>行</th><th>开课</th><th>动作</th><th>教师</th>
+                <th>旧角色/旧负责人</th><th>新角色/新负责人</th><th>生效</th><th>失效（不含）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for change in original.change_summary.assignments %}
+                <tr>
+                  <td>{{ change.file|default:"—" }}</td>
+                  <td>{{ change.row }}</td>
+                  <td><code>{{ change.offering_code }}</code></td>
+                  <td>
+                    {% if change.action == "added" %}新增任课
+                    {% elif change.action == "ended" %}结束任课
+                    {% elif change.action == "role_changed" %}角色变更
+                    {% elif change.action == "plan_owner_changed" %}教学计划负责人同步
+                    {% else %}{{ change.action }}{% endif %}
+                  </td>
+                  <td><code>{{ change.teacher_code }}</code></td>
+                  <td>{{ change.old_role|default:"—" }}</td>
+                  <td>{{ change.new_role|default:"—" }}</td>
+                  <td>{{ change.effective_from|default:"—" }}</td>
+                  <td>
+                    {% if change.delete_unstarted %}尚未生效，删除未开始记录
+                    {% else %}{{ change.effective_until|default:"—" }}{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>本次预览没有任课范围变化。</p>
+      {% endif %}
+
+      {% if preview_warnings %}
+        <h2 style="margin-top:20px">警告</h2>
+        <p>警告不阻止提交，但需要教务人员确认依据。</p>
+        <div style="overflow-x:auto">
+          <table style="width:100%; min-width: 900px">
+            <thead>
+              <tr>
+                <th>文件</th><th>工作表</th><th>行</th><th>字段</th>
+                <th>原值</th><th>code</th><th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for warning in preview_warnings %}
+                <tr>
+                  <td>{{ warning.file|default:"—" }}</td>
+                  <td>{{ warning.sheet|default:"—" }}</td>
+                  <td>{{ warning.row }}</td>
+                  <td>{{ warning.field|default:"—" }}</td>
+                  <td><code>{{ warning.value|default:"—" }}</code></td>
+                  <td><code>{{ warning.code }}</code></td>
+                  <td>{{ warning.message }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      {% if preview_errors %}
+        <h2 style="margin-top:20px">错误</h2>
         <p>存在错误时整批不能提交。请按文件、行号和字段修正后重新上传。</p>
         <div style="overflow-x:auto">
           <table style="width:100%; min-width: 900px">
@@ -58,7 +156,7 @@
               </tr>
             </thead>
             <tbody>
-              {% for error in original.errors_json %}
+              {% for error in preview_errors %}
                 <tr>
                   <td>{{ error.file|default:"—" }}</td>
                   <td>{{ error.sheet|default:"—" }}</td>
@@ -75,14 +173,14 @@
       {% endif %}
     </div>
 
-    {% if original.status == "previewed" and not original.errors_json %}
+    {% if can_commit %}
       <div class="submit-row" style="margin-top: 20px">
         <form method="post" action="{% url 'admin:imports_importbatch_commit' original.pk %}">
           {% csrf_token %}
           <input type="submit" class="default" value="提交导入">
         </form>
         <p class="help">
-          提交前会在数据库锁内重新预览；若数据或学期课表版本已变化，会要求重新预览。
+          提交前会在数据库锁内重新预览；若数据、任课范围或学期课表版本已变化，会要求重新预览。
         </p>
       </div>
     {% elif original.status == "uploaded" %}

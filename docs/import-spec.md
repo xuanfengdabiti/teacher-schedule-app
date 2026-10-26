@@ -1,6 +1,6 @@
 # 课表数据导入规范 v1
 
-> 2026-10-26。本文是导入合同；[CSV 模板](../templates/import/README.md)全部为虚构数据。B12a 已实现首次导入与相同内容的重复导入（解析、校验、预览、新建型提交）；字段更新、snapshot、已调课/已完成/有教学记录对象的人工决定项、过期预览重算和换授课教师后的可见性处理在 B12b。领域对象以[领域规则](domain-design.md)为准，本文规定外部文件如何映射到这些对象。
+> 2026-10-27。本文是导入合同；[CSV 模板](../templates/import/README.md)全部为虚构数据。B12a 已实现首次导入与相同内容的重复导入（解析、校验、预览、新建型提交）；B12b 已实现不影响课表的基础资料 merge 增量更新、任课范围版本递增、变更明细/警告和过期预览状态指纹。snapshot、会影响既有课次的变更（学期日期/首周周一/周数、节次时间、校历例外、规则内容、已有 sessions 行差异）以及已调课/已完成/有教学记录对象的人工决定项仍留待 B12c。领域对象以[领域规则](domain-design.md)为准，本文规定外部文件如何映射到这些对象。
 
 ## 1. 输入、批次与基本类型
 
@@ -93,7 +93,7 @@ calendar_exceptions 与 rules 都提交后再展开具体课次；sessions 对�
 | phone_visibility / wechat_visibility | enum，必填 | `private / course_teachers / school_teachers`；默认 private |
 | is_active | bool，必填 | 名册是否启用；停用不删除历史任课记录 |
 
-名册导入只创建教师资料，不创建密码，不视为已验证邮箱，不自动将同名账号绑定。已关联账号的联系方式在 App 中由本人维护；后续名册导入的空值不会抹掉自愿填写的资料。修改正式工号需要明确迁移映射，不用“删旧教师新增教师”处理。
+名册导入只创建教师资料，不创建密码，不视为已验证邮箱，不自动将同名账号绑定。已关联账号的联系方式在 App 中由本人维护；后续名册导入即使给了 phone/wechat 或可见范围，也不覆盖这些字段，空值同样不会抹掉自愿填写的资料。修改正式工号需要明确迁移映射，不用“删旧教师新增教师”处理。
 
 ### 3.4 classrooms.csv：教室
 
@@ -120,7 +120,7 @@ calendar_exceptions 与 rules 都提交后再展开具体课次；sessions 对�
 
 同一 course_code/class_code 在多行出现时，其名称等共用字段必须一致；不允许以文件最后一行任意覆盖。同一 class_code 的两门不同 Offering 仍按实际 Enrollment 做学生冲突，不能把班内所有学生默认全部选上。
 
-首版该模板将 teacher_codes 映射为整个学期有效的 TeachingAssignment，负责人 role=lead，其余 role=teacher。分周实际授课教师写在 rules/sessions。若名单在期中变更，需教务确认生效范围与保留的历史分工；不通过重导 offering 时静默删除过去的任课关联。复杂分段任课可后续加独立 assignment 模板，本次不另引入一套重复维护入口。
+首版该模板将 teacher_codes 映射为整个学期有效的 TeachingAssignment，负责人 role=lead，其余 role=teacher。分周实际授课教师写在 rules/sessions。若名单在期中变更，需教务确认生效范围与保留的历史分工；不通过重导 offering 时静默删除过去的任课关联。B12b 对新增成员按学期开始日创建任课；对移除成员，若其仍有未来 scheduled 课次则整批拒绝，否则把有效任课结束于提交当日并保留历史。复杂分段任课可后续加独立 assignment 模板，本次不另引入一套重复维护入口。
 
 ### 3.6 enrollments.csv：实际选课
 
@@ -248,7 +248,7 @@ calendar_exceptions 与 rules 都提交后再展开具体课次；sessions 对�
 
 `school` 仅指当前 school+term 内所有相应资源，不能跨学校或学期。细粒度范围键中的编号必须真实存在；不允许任意文本作为“范围”。针对候选的教师、学生、教室、Offering，所有必要类别都完整才可返回 available。已知有冲突时即使另有数据缺口仍返回 conflict，并附缺口；缺数据但没查到冲突返回 unverified。
 
-同 kind/scope_key 的声明如有效期重叠，不把它们简单拼成“看起来完整”；预览要求明确替换旧声明或裁开区间。修改已存在覆盖声明由稳定 coverage_code 更新，新增来源不能自动覆盖学校明确的 partial/missing。coverage 与所证明的数据提交同事务；未上传某类记录可以确认“已核对无额外占用”，但不能对尚未提供的整校课表凭空确认完整。
+同 kind/scope_key 的声明如有效期重叠，不把它们简单拼成“看起来完整”；预览要求明确替换旧声明或裁开区间。修改已存在覆盖声明由稳定 coverage_code 更新；已有记录从学校明确的 partial/missing 改为 complete 时，预览显示 warning 供教务核对 confirmation_ref，不直接阻止提交，也不会静默改掉校历/排课数据。coverage 与所证明的数据提交同事务；未上传某类记录可以确认“已核对无额外占用”，但不能对尚未提供的整校课表凭空确认完整。
 
 样例学校仅有模板中的教师/学生/课程，complete 仅用于联调，不对任何真实学校产生含义。
 
@@ -288,6 +288,10 @@ calendar_exceptions 与 rules 都提交后再展开具体课次；sessions 对�
 - 核心必填字段用本次显式值更新；可空的展示资料空值默认保留已有值，避免空名册覆盖教师本人联系方式。清空操作在 Admin 明确执行；v1 不在 CSV 发明第二套清空标记。
 - scheduled/completed/cancelled 是显式状态，不按空 actual_hours 自动推断。已经 completed 的课次重导 scheduled，或明确实际学时不同，进入人工决定项，不能因为普通增量覆盖进度。
 - rules.weeks 或 offerings.teacher_codes 属于完整集合字段：一行给出该对象当前的集合，不把新旧列表盲目合并。移除成员/周次影响已有记录时必须预览和确认；不会自动删除历史课次/任课。
+- B12b 的 merge 白名单：terms 只改 term_name；teachers 改 formal_name/department/email/is_active，未关联账号时按名册更新 phone/wechat/可见范围，空值保留，已关联账号的联系方式一律以 App 为准；classrooms 改校区/楼宇/房间号/容量/设备/启用状态；offerings 改 Course/TeachingClass 名称、target_hours、负责人、必需设备和 teacher_codes；enrollments 只改 effective_until；room_blocks/resource_unavailability 改起止时间和原因；coverage 按 coverage_code 改日期范围、completeness、来源时间和确认依据。表外差异仍报 `CHANGE_NOT_SUPPORTED_YET`。
+- 修改 Term 名称写 `term` ChangeLog；修改教师名称、教室展示信息、Course/TeachingClass 名称时，为所有出现在 SessionSummary 中且受影响的课次批量写 `session` ChangeLog，version 保持课次当前值，不为展示字段递增。
+- offerings.teacher_codes 新增教师时创建 `TeachingAssignment`（学期开始日生效）；移除教师时若该教师在该 offering 仍有未来 scheduled 课次，B12c 前整批报 `CHANGE_NOT_SUPPORTED_YET`，否则把有效任课结束于提交当日（学校本地日期）。不删除历史任课。负责人变化同步 `lead_teacher`、任课 role 和教学计划 owner。任何新增、结束或角色变更都在同一事务递增该教师的 `assignment_scope_version`，让 App 清除失去权限的缓存并重新 bootstrap。
+- 同一 coverage_code 从 partial/missing 改为 complete 时保留 warning；`confirmation_ref` 仍按 complete 必填校验，错误阻止提交。
 
 ### 5.3 snapshot：限定范围快照
 
@@ -300,7 +304,7 @@ calendar_exceptions 与 rules 都提交后再展开具体课次；sessions 对�
 
 ### 5.4 提交和过期预览
 
-errors 或未解决的 manual_decision 存在时整批不提交；可修文件重传或在预览明确解决。提交事务先按统一锁顺序获取同步状态/学期写入锁，检查预览版本，若期间有人正式调课/修改相关数据，重新计算受影响预览，不沿用旧判断。
+errors 或未解决的 manual_decision 存在时整批不提交；可修文件重传或在预览明确解决。提交事务先按统一锁顺序获取同步状态/学期写入锁，检查预览版本，锁内重新计算受影响预览；若文件、行统计、问题、字段旧值、任课关系、教学计划负责人或 `Term.schedule_version` 与预览时不同，整批回到待预览，不沿用旧判断。预览状态指纹保存在 ImportBatch，只用于批次过期判断，不改变课程业务数据。
 
 正式表更新、ImportIdentity、ImportBatch、SessionChange、coverage、对象版本/ChangeLog 及站内消息同事务提交。单次提交失败整体回滚，不产生“半门课导入”。大文件先按学期/范围拆批；没有实际需要时不增加异步平台。
 
@@ -317,4 +321,4 @@ errors 或未解决的 manual_decision 存在时整批不提交；可修文件�
 7. 在已完成/已调课课次上更改当前日期，不改变 external_session_id 或 origin；预览要求人工确认，确认后 UUID 和原教学记录保持。
 8. 移除 student_schedule 或 person_blocks 的覆盖声明后，相关候选返回 unverified；其他类别 complete 不能替代。
 
-B12a 自动化测试已覆盖第 1–3 条以及重复导入、CSV/XLSX 对照、错误定位和 Admin 流程；更新/快照/人工决定项（第 5–8 条中的更新与缺失处理）仍留待 B12b。样例的 40 课次、两节完成课和 10-05→10-10 替换由服务端测试验证，不以本文推算代替实现。
+导入自动化测试覆盖第 1–3 条以及重复导入、CSV/XLSX 对照、错误定位和 Admin 流程；B12b 追加覆盖缺行不误删、教师/教室/学期名称、选课退课与 B30 目标日有效名单、任课新增/结束/负责人变化、coverage warning、课表相关变更拒绝、并发预览过期和 session/term ChangeLog。snapshot、影响既有课次的重排/缺失处理和人工决定项（第 5–8 条中的对应部分）仍留待 B12c。样例的 40 课次、两节完成课和 10-05→10-10 替换由服务端测试验证，不以本文推算代替实现。
