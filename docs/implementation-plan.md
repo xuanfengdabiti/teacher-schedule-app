@@ -243,7 +243,7 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 
 | 分组 | 主要接口（计划合同） | 说明 |
 | --- | --- | --- |
-| 账号 | `POST auth/registration/`、`POST auth/login/`、`POST auth/logout/` | 包装现有组件，字段和路由在开工 PoC 后冻结 |
+| 账号 | `POST auth/registration/`、`POST auth/registration/verify-email/`、`POST auth/registration/resend-email/`、`POST auth/login/`、`POST auth/logout/` | 包装现有组件；注册字段为 email/password1/password2/formal_name/teacher_no |
 | 账号恢复 | `POST auth/password/reset/`、`POST auth/password/reset/confirm/`、`POST auth/password/change/` | 邮件验证/重发接口同时输出到 OpenAPI |
 | 登录态 | `POST auth/token/refresh/`、`GET me/`、`PATCH me/` | me 含 teacher_status/current_term |
 | 头像 | `POST me/avatar/` | multipart 上传图片；返回头像 URL，正式服务持久化存储 |

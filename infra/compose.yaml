@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# PostgreSQL 16 – 教师课表后端开发数据库
+# 本地开发依赖：PostgreSQL 16 + Mailpit（邮件捕获）
 # ---------------------------------------------------------------------------
 # 启动：docker compose -f infra/compose.yaml up -d
 # 停止：docker compose -f infra/compose.yaml down
@@ -24,6 +24,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    restart: unless-stopped
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_HTTP_PORT:-8025}:8025"
 
 volumes:
   pgdata:

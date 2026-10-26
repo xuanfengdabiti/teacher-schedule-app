@@ -13,14 +13,14 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.authentication import SessionAuthentication
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.academics.models import TeacherProfile, TeachingAssignment
+from apps.accounts.services import require_active_teacher
 from apps.scheduling.models import ClassSession, SessionTeacher
 from apps.scheduling.reschedule_options import (
     OptionQuery,
@@ -35,10 +35,7 @@ from apps.scheduling.serializers import (
 
 
 def _authorised_teacher_or_403(request: Request, session: ClassSession) -> TeacherProfile:
-    try:
-        profile = request.user.teacher_profile
-    except TeacherProfile.DoesNotExist as exc:
-        raise PermissionDenied("当前账号未关联教师档案，不能查看该课次的调课候选。") from exc
+    profile = require_active_teacher(request.user)
 
     if SessionTeacher.objects.filter(session=session, teacher=profile).exists():
         return profile
@@ -56,11 +53,11 @@ def _authorised_teacher_or_403(request: Request, session: ClassSession) -> Teach
     responses={
         200: RescheduleOptionsResponseSerializer,
         400: RescheduleOptionsErrorSerializer,
+        403: RescheduleOptionsErrorSerializer,
         409: RescheduleOptionsErrorSerializer,
     },
 )
 @api_view(["POST"])
-@authentication_classes([SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def reschedule_options(request: Request, session_id: UUID) -> Response:
     session = get_object_or_404(

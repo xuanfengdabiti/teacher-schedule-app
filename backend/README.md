@@ -10,7 +10,7 @@
 
 以下命令均在 `backend/` 目录下执行，除非特别说明。
 
-### 1. 启动 PostgreSQL
+### 1. 启动 PostgreSQL 与 Mailpit
 
 ```bash
 # 在仓库根目录执行
@@ -25,8 +25,19 @@ docker compose -f infra/compose.yaml up -d
 | `POSTGRES_PASSWORD` | `schedule_dev` |
 | `POSTGRES_DB`       | `schedule_dev` |
 | `POSTGRES_PORT`     | `5432`         |
+| `MAILPIT_SMTP_PORT` | `1025`         |
+| `MAILPIT_HTTP_PORT` | `8025`         |
 
-等待容器变为 healthy：`docker ps --filter name=infra-postgres`
+等待数据库变为 healthy：`docker ps --filter name=infra-postgres`。Mailpit 使用固定镜像
+`axllent/mailpit:v1.32.0`，开发邮件不会真正外发：
+
+- 邮件列表与阅读：<http://127.0.0.1:8025>
+- HTTP API（脚本取信）：<http://127.0.0.1:8025/api/v1/messages>
+- SMTP：`127.0.0.1:1025`，默认无需账号密码或 TLS。
+
+若本机 `1025` 已被其他 SMTP 服务占用，可用
+`MAILPIT_SMTP_PORT=1026 docker compose -f infra/compose.yaml up -d` 映射宿主机端口，
+并把 `.env` 的 `EMAIL_PORT` 同步改为 `1026`；容器内 Mailpit 仍监听 1025。
 
 升级 PostgreSQL 16 补丁版本并复用旧数据卷后，若迁移或测试报 `collation version mismatch`，是新镜像的系统排序规则库版本变化所致，执行一次即可：
 
@@ -66,8 +77,73 @@ uv run --env-file .env python manage.py runserver
 
 - API：<http://127.0.0.1:8000/api/v1/health/>
 - OpenAPI：<http://127.0.0.1:8000/api/v1/schema/>
+- 账号接口：见下文“账号与认证”
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
 - Admin：<http://127.0.0.1:8000/admin/>
+
+## 账号与认证（B01/B10 后端）
+
+账号端点由 dj-rest-auth 7.2.0 + django-allauth 65.20.1 提供，JWT 由
+SimpleJWT 5.5.1 签发；项目没有自写 JWT、密码哈希或邮件 token 算法。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `POST /api/v1/auth/registration/` | 字段 `email`、`password1`、`password2`、`formal_name`、`teacher_no`；只发送验证邮件，不返回 token |
+| `POST /api/v1/auth/registration/verify-email/` | 提交邮件中的 `key` |
+| `POST /api/v1/auth/registration/resend-email/` | 重发验证邮件 |
+| `POST /api/v1/auth/login/` | `email` + `password`；邮箱未验证返回明确的 400 |
+| `POST /api/v1/auth/logout/` | 需要 access token；请求体 `refresh` 加入 blacklist |
+| `POST /api/v1/auth/token/refresh/` | 旋转 refresh；旧 refresh 随即失效 |
+| `POST /api/v1/auth/password/reset/` | 发送重置邮件 |
+| `POST /api/v1/auth/password/reset/confirm/` | `uid`、`token`、`new_password1`、`new_password2` |
+| `POST /api/v1/auth/password/change/` | 已登录修改密码；成功后要求重新登录 |
+| `GET/PATCH /api/v1/me/` | 本人资料、邮箱/教师状态、当前学期和联系方式可见范围 |
+| `POST /api/v1/me/deactivation/` | 停用账号、撤销全部 refresh、清空联系方式，保留教学历史 |
+
+认证默认使用 SimpleJWT `JWTAuthentication`，同时保留 `SessionAuthentication`
+供 Admin/可浏览 API。access 有效期 30 分钟，refresh 14 天；refresh 旋转并把旧值加入
+blacklist。移动端把 token 保存在系统安全存储；接口不使用 httpOnly cookie，因此登录和
+刷新响应会返回 token 本身。修改密码、重置密码确认和停用会通过
+`revoke_all_refresh_tokens` 把该用户所有 `OutstandingToken` 加入 blacklist。访问 token
+不存入 blacklist，仍可能在其 30 分钟有效期内可用；客户端收到“重新登录”后必须丢弃本地
+token。
+
+### 教师身份关联
+
+注册时写入 `TeacherClaim(status=pending)`。邮箱验证成功（allauth
+`email_confirmed` signal）后，只有同一学校、`teacher_no` 与归一化邮箱都匹配、档案
+启用且尚未关联账号的**恰好一个** `TeacherProfile` 才会自动关联；此时档案状态置为
+`active` 且 `assignment_scope_version` 加 1。只匹配工号、只匹配邮箱、同名或档案已被占用
+都保持 pending，交教务处理；绝不按姓名自动关联。
+
+Admin 的“教师身份申报”列表支持按状态筛选和两个动作：
+
+- **批准并关联到所选教师档案**：要求已填写 `matched_profile`，且该档案未停用、未被占用。
+- **驳回**。
+
+两个动作与自动匹配共用 `apps.accounts.services` 中的事务服务。`GET /api/v1/me/` 的
+`teacher_status` 为 `active / pending / disabled / unlinked`；未关联教师调用需要
+`TeacherProfile` 的接口返回 403 `TEACHER_NOT_LINKED`，教师档案停用时返回 403
+`TEACHER_DISABLED`。`PATCH /me/` 对未关联档案返回 400 `TEACHER_NOT_LINKED`，对停用档案
+返回 403 `TEACHER_DISABLED`。
+
+### 邮件与 App 深链
+
+本地开发使用 Mailpit 捕获邮件：
+
+1. `docker compose -f infra/compose.yaml up -d` 启动 Mailpit。
+2. 注册或找回密码后打开 <http://127.0.0.1:8025> 阅读邮件。
+3. 脚本可通过 <http://127.0.0.1:8025/api/v1/messages> 取信。
+
+邮件模板为中文，验证邮件同时包含
+`{APP_LINK_BASE}verify-email?key=...` 和可复制的原始 key；重置邮件同时包含
+`{APP_LINK_BASE}reset-password?uid=...&token=...` 和可复制的 uid + token，便于在另一台
+设备打开邮件后手工粘贴。`APP_LINK_BASE` 可设为自定义 scheme（示例
+`teacherschedule://`）或 `https://<域名>/app`；项目不提供网页回跳页。
+
+SMTP 参数全部来自环境变量。测试使用 Django locmem backend 和
+`django.core.mail.outbox`，不连接外部 SMTP；真实学校 SMTP 投递尚未在本仓库验证，
+本地 Mailpit 的 SMTP 收信已在手工流程中验证。
 
 ## 运行检查命令
 
@@ -97,12 +173,20 @@ uv run --env-file .env pytest -m perf
 
 ## 环境变量说明
 
-| 变量                  | 必需 | 说明                                                  |
-| --------------------- | ---- | ----------------------------------------------------- |
-| `DJANGO_SECRET_KEY`   | 是   | Django `SECRET_KEY`；缺失时启动抛出明确 `RuntimeError` |
-| `DJANGO_DEBUG`        | 否   | `true`/`1`/`yes` 开启调试，默认关闭                    |
-| `DJANGO_ALLOWED_HOSTS`| 否   | 逗号分隔；`DEBUG=false` 时必须非空                     |
-| `DATABASE_URL`        | 是   | `postgres://user:pass@host:port/db`；缺失时明确报错    |
+| 变量                   | 必需 | 说明                                                              |
+| ---------------------- | ---- | ----------------------------------------------------------------- |
+| `DJANGO_SECRET_KEY`    | 是   | Django `SECRET_KEY`；缺失时启动抛出明确 `RuntimeError`             |
+| `DJANGO_DEBUG`         | 否   | `true`/`1`/`yes` 开启调试，默认关闭                                |
+| `DJANGO_ALLOWED_HOSTS` | 否   | 逗号分隔；`DEBUG=false` 时必须非空                                 |
+| `DATABASE_URL`         | 是   | `postgres://user:pass@host:port/db`；缺失时明确报错                |
+| `DJANGO_EMAIL_BACKEND` | 否   | 默认 SMTP；测试/离线可改为 locmem 或 console backend               |
+| `EMAIL_HOST`           | 否   | SMTP 主机，开发默认 `127.0.0.1`                                    |
+| `EMAIL_PORT`           | 否   | SMTP 端口，开发默认 `1025`（Mailpit）                              |
+| `EMAIL_HOST_USER`      | 否   | SMTP 用户名；Mailpit 本地默认留空                                  |
+| `EMAIL_HOST_PASSWORD`  | 否   | SMTP 密码；不得提交真实值                                          |
+| `EMAIL_USE_TLS`        | 否   | `true`/`false`，默认关闭                                           |
+| `DEFAULT_FROM_EMAIL`   | 否   | 发件人，示例为虚构地址                                             |
+| `APP_LINK_BASE`        | 否   | 邮件 App 深链前缀，默认 `teacherschedule://`；不要带查询参数       |
 
 `DATABASE_URL` 缺失或为空时服务立即报错退出，**不回退到 SQLite**。
 
@@ -115,9 +199,17 @@ uv run --env-file .env pytest -m perf
 backend/
 ├── config/              # 项目配置（settings、urls、wsgi/asgi、health 视图）
 │   └── tests/
+├── templates/
+│   └── account/email/   # 中文验证/重置邮件（App 深链 + 可复制参数）
 ├── apps/
-│   ├── common/          # 抽象基类：UUID 主键 + created_at/updated_at
-│   ├── accounts/        # 自定义 User（UUID 主键、email 登录）
+│   ├── common/          # UUID 基类、统一教师状态异常
+│   ├── accounts/        # 自定义 User、TeacherClaim、JWT 账号接口
+│   │   ├── adapters.py  # 中文邮件上下文、App 深链、无网页回跳
+│   │   ├── serializers.py # 注册、登录、撤销钩子、me
+│   │   ├── services.py  # 教师关联、全部 refresh 撤销、停用
+│   │   ├── signals.py   # email_confirmed 后尝试自动关联
+│   │   ├── views.py     # me、停用、退出、改密响应
+│   │   ├── urls.py      # 账号与 me 路由
 │   │   ├── forms.py     # Admin 新增/编辑表单
 │   │   ├── migrations/
 │   │   └── tests/
@@ -154,7 +246,7 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 
 ## 调课候选查询（B30）
 
-`POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的 `TeachingAssignment` 教师可查询；未登录或非任课教师返回 403，课次不存在返回 404。
+`POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的 `TeachingAssignment` 教师可查询；未登录返回 401，非任课教师返回 403，未关联教师档案返回 403 `TEACHER_NOT_LINKED`，教师档案停用返回 403 `TEACHER_DISABLED`，课次不存在返回 404。
 
 请求字段：`date_from`、`date_until`（半开区间；默认今天至 `date_from + 14 天`）、`allowed_block_codes`、`classroom_ids`、`allow_weekend`。源课次非 `scheduled` 返回 409 `SESSION_NOT_RESCHEDULABLE`；日期区间无效返回 400 `INVALID_DATE_RANGE`，两者都使用 `{"code", "detail", "field_errors"}`。OpenAPI 合同见 `/api/v1/schema/`。
 

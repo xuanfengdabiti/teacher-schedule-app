@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+
+from apps.common.models import TimeStampedUUIDModel
 
 
 def normalize_user_email(email: str) -> str:
@@ -91,3 +94,63 @@ class User(AbstractUser):
         if self.email:
             self.email = normalize_user_email(self.email)
         super().save(*args, **kwargs)
+
+
+class TeacherClaimStatus(models.TextChoices):
+    PENDING = "pending", _("待教务确认")
+    APPROVED = "approved", _("已批准")
+    REJECTED = "rejected", _("已驳回")
+
+
+class TeacherClaim(TimeStampedUUIDModel):
+    """A teacher's self-reported name and staff number awaiting verification.
+
+    The claim is deliberately separate from ``TeacherProfile``: only a double
+    match of roster email + staff number, or an explicit staff approval in
+    Admin, may bind an account to a teacher record.  A name alone never links
+    records.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="teacher_claim",
+        verbose_name=_("用户"),
+    )
+    claimed_formal_name = models.CharField(_("申报正式姓名"), max_length=100)
+    claimed_teacher_no = models.CharField(_("申报工号"), max_length=64)
+    status = models.CharField(
+        _("状态"),
+        max_length=16,
+        choices=TeacherClaimStatus.choices,
+        default=TeacherClaimStatus.PENDING,
+    )
+    matched_profile = models.ForeignKey(
+        "academics.TeacherProfile",
+        on_delete=models.PROTECT,
+        related_name="teacher_claims",
+        verbose_name=_("匹配教师档案"),
+        null=True,
+        blank=True,
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="decided_teacher_claims",
+        verbose_name=_("处理人"),
+        null=True,
+        blank=True,
+    )
+    decided_at = models.DateTimeField(_("处理时间"), null=True, blank=True)
+    note = models.TextField(_("说明"), blank=True, default="")
+
+    class Meta:
+        verbose_name = _("教师身份申报")
+        verbose_name_plural = _("教师身份申报")
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="acct_claim_status_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.claimed_teacher_no} {self.claimed_formal_name} ({self.get_status_display()})"
