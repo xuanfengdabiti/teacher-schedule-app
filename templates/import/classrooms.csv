@@ -1,0 +1,4 @@
+classroom_code,campus,building,room_no,capacity,equipment,is_active
+A301,虚构校区,示例教学楼A,301,30,projector|computer,true
+A302,虚构校区,示例教学楼A,302,20,projector,true
+B201,虚构校区,示例教学楼B,201,50,projector|computer,true

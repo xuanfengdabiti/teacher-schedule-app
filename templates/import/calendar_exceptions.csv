@@ -1,0 +1,3 @@
+exception_code,term_code,date,kind,source_teaching_date,reason
+CAL-20261005,2026-autumn,2026-10-05,cancel,,虚构示例停课
+CAL-20261010,2026-autumn,2026-10-10,replace,2026-10-05,虚构示例周六执行10月5日教学安排

@@ -1,0 +1,4 @@
+external_session_id,term_code,offering_code,origin_rule_code,origin_teaching_date,origin_start_period,session_date,start_period,end_period,start_time,end_time,classroom_code,teacher_codes,status,planned_hours,actual_hours,completed_by_teacher_code,completed_at,completion_ref,change_ref
+S-CRIME-W05,2026-autumn,OFF-CRIME-2026A,R-CRIME-ODD,2026-10-05,1,2026-10-10,1,2,,,A301,0001,completed,2.0,2.0,0001,2026-10-10T10:00:00+08:00,DEMO-RECORD-CRIME-W05,
+S-CRIME-W07,2026-autumn,OFF-CRIME-2026A,R-CRIME-ODD,2026-10-19,1,2026-10-19,1,2,,,A301,0001,completed,2.0,2.0,0001,2026-10-19T10:00:00+08:00,DEMO-RECORD-CRIME-W07,
+S-DATA-W07,2026-autumn,OFF-DATA-2026A,R-DATA-MON,2026-10-19,3,2026-10-19,3,4,,,A302,0001,scheduled,2.0,,,,,

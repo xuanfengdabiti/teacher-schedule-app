@@ -1,0 +1,9 @@
+coverage_code,term_code,kind,scope_key,from_date,until_date,completeness,source_updated_at,confirmation_ref
+COV-CALENDAR,2026-autumn,calendar,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-ASSIGNMENTS,2026-autumn,teacher_assignments,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-TEACHER-SCHEDULE,2026-autumn,teacher_schedule,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-STUDENT-ENROLLMENTS,2026-autumn,student_enrollments,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-STUDENT-SCHEDULE,2026-autumn,student_schedule,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-CLASSROOM-SCHEDULE,2026-autumn,classroom_schedule,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-ROOM-BLOCKS,2026-autumn,room_blocks,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET
+COV-PERSON-BLOCKS,2026-autumn,person_blocks,school,2026-09-07,2027-01-25,complete,2026-10-26T08:00:00+08:00,DEMO-FULL-DATASET

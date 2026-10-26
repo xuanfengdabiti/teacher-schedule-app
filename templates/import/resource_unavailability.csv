@@ -1,0 +1,3 @@
+block_code,term_code,resource_type,resource_code,start_at,end_at,reason
+PB-T0002-20261028,2026-autumn,teacher,0002,2026-10-28T10:00:00+08:00,2026-10-28T11:40:00+08:00,虚构示例教师会议
+PB-S000002-20261028,2026-autumn,student,000002,2026-10-28T14:00:00+08:00,2026-10-28T15:40:00+08:00,虚构示例学生考试

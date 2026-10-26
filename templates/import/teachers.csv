@@ -1,0 +1,3 @@
+teacher_code,formal_name,department,email,phone,phone_visibility,wechat,wechat_visibility,is_active
+0001,示例教师甲,虚构侦查教研室,t0001@example.invalid,,private,,private,true
+0002,示例教师乙,虚构侦查教研室,t0002@example.invalid,,private,,private,true
