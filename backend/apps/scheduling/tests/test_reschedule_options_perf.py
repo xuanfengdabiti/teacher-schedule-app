@@ -2,82 +2,32 @@
 
 Marked ``perf`` and excluded from the default test run because building the
 20,000-session/20,000-enrolment fixture takes noticeably longer than a normal
-unit test.  Run explicitly with ``uv run --env-file .env pytest -m perf``.
+unit test.  Run explicitly with ``pytest -m perf``.
 """
 
 from __future__ import annotations
 
-import random
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from apps.academics.models import Enrollment, Student
 from apps.scheduling.models import ClassSession
 from apps.scheduling.reschedule_options import OptionQuery, find_reschedule_options
-from apps.scheduling.services import generate_sessions_for_term
-from apps.scheduling.tests import factories as f
+from apps.scheduling.tests.scale_data import build_scale_data
 
 pytestmark = [pytest.mark.django_db, pytest.mark.perf]
 
 
 def test_14_day_candidate_query_stays_under_two_seconds() -> None:
-    rnd = random.Random(7)
-    school = f.make_school()
-    term = f.make_term(school)
-    f.make_periods(term)
-    rooms = [f.make_classroom(school, f"R{i:03d}", capacity=60) for i in range(100)]
-    teachers = [f.make_teacher(school, f"{i:04d}") for i in range(200)]
-    students = Student.objects.bulk_create([Student(school=school, student_no=f"{i:06d}") for i in range(5000)])
-
-    offerings = []
-    slots = [(day, period) for day in range(1, 6) for period in (1, 3, 5, 7)]
-    index = 0
-    for room in rooms:
-        for weekday, start_period in rnd.sample(slots, 10):
-            teacher = teachers[index % 200]
-            offering = f.make_offering(
-                term,
-                teacher,
-                offering_code=f"O{index:04d}",
-                course_code=f"C{index:04d}",
-                course_name=f"课程{index}",
-                class_code=f"TC{index % 50:02d}",
-                required_equipment=(),
-            )
-            f.make_rule(
-                offering,
-                room,
-                (teacher,),
-                rule_code=f"R{index:04d}",
-                weekday=weekday,
-                start_period=start_period,
-                end_period=start_period + 1,
-                weeks=tuple(range(1, 21)),
-            )
-            offerings.append(offering)
-            index += 1
-
-    enrollments = []
-    for student in students:
-        for offering in rnd.sample(offerings, 4):
-            enrollments.append(
-                Enrollment(
-                    offering=offering,
-                    student=student,
-                    effective_from=term.start_date,
-                )
-            )
-    Enrollment.objects.bulk_create(enrollments)
-    generate_sessions_for_term(term)
+    data = build_scale_data()
 
     assert ClassSession.objects.count() == 20_000
-    assert len(enrollments) == 20_000
+    assert data.enrollment_count == 20_000
     source = (
         ClassSession.objects.filter(
-            offering=offerings[0],
+            offering=data.offerings[0],
             start_at__date__gte=date(2026, 10, 27),
         )
         .order_by("start_at")
