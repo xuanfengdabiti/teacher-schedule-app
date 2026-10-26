@@ -109,15 +109,38 @@ backend/
 ├── config/              # 项目配置（settings、urls、wsgi/asgi、health 视图）
 │   └── tests/
 ├── apps/
-│   └── accounts/        # 自定义 User（UUID 主键、email 登录）
-│       ├── forms.py     # Admin 新增/编辑表单
+│   ├── common/          # 抽象基类：UUID 主键 + created_at/updated_at
+│   ├── accounts/        # 自定义 User（UUID 主键、email 登录）
+│   │   ├── forms.py     # Admin 新增/编辑表单
+│   │   ├── migrations/
+│   │   └── tests/
+│   ├── academics/       # 学校/学期/节次/校历、教师/学生、课程/开课/选课/覆盖
+│   │   ├── selectors.py # 按日期有效的实际选课查询
+│   │   ├── admin.py
+│   │   └── migrations/
+│   ├── classrooms/      # 教室目录与教室非课程占用
+│   │   ├── admin.py
+│   │   └── migrations/
+│   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态
+│       ├── calendar.py  # 教学周与规则展开（纯函数，不查数据库）
+│       ├── services.py  # 课次生成事务服务（统一锁顺序）
+│       ├── admin.py
 │       ├── migrations/
-│       └── tests/
+│       └── tests/       # 样例学期 fixture 与生成/约束/Admin 测试
 ├── manage.py
 ├── pyproject.toml
 ├── uv.lock
 └── .env.example
 ```
+
+## 课次生成
+
+B11 只实现“按规则展开课次”，不包含导入器（B12）和正式调课（B31）。
+
+- Admin 的“学期”列表提供动作 **按规则生成课次**，调用 `apps.scheduling.services.generate_sessions_for_term`；事务内先锁 `SchoolSyncState`，再锁 `Term`。
+- 已存在的生成键（规则 + 原教学日期 + 原起始节）不会被改写，差异只计入 `mismatched` 供后续导入预览处理；新建课次时 `Term.schedule_version` 加 1。
+- `ClassSession` 在 Admin 中仅可查看（不能新增、修改、删除）：完成量更正需要原因并走 B22 教学服务，正式课表变更走 B31 统一服务。
+- 校历 `cancel`/`custom`/`replace` 目标日上的基础课次保留为 `cancelled`，不删除。
 
 ## 常用开发命令
 

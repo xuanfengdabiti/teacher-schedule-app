@@ -88,7 +88,11 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     # local
+    "apps.common",
     "apps.accounts",
+    "apps.academics",
+    "apps.classrooms",
+    "apps.scheduling",
 ]
 
 MIDDLEWARE = [
