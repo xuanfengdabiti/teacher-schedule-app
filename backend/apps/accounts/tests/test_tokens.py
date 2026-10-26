@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from apps.academics.models import ContactVisibility
 from apps.accounts.models import User
+from apps.notifications.models import DeviceRegistration
 
 from .conftest import (
     PASSWORD,
@@ -187,3 +188,30 @@ def test_deactivation_disables_login_refresh_and_clears_contacts(api_client, sch
     assert refresh.status_code == 401
     assert login(api_client, "deactivate@example.invalid").status_code == 400
     assert _authed_client(tokens["access"]).get("/api/v1/me/").status_code == 401
+
+
+def test_deactivation_disables_all_device_bindings(api_client, school) -> None:
+    user = make_user("deactivate-devices@example.invalid")
+    profile = make_teacher_profile(school, "T3002", email="deactivate-devices@example.invalid")
+    profile.user = user
+    profile.teacher_status = "active"
+    profile.save(update_fields=["user", "teacher_status", "updated_at"])
+    devices = [
+        DeviceRegistration.objects.create(
+            user=user,
+            installation_id=f"deactivate-install-{index}",
+            provider="getui" if index == 0 else "apns",
+            provider_client_id=f"deactivate-client-{index}",
+            platform="android" if index == 0 else "ios",
+        )
+        for index in range(2)
+    ]
+    tokens = _tokens(api_client, "deactivate-devices@example.invalid")
+
+    response = _authed_client(tokens["access"]).post("/api/v1/me/deactivation/")
+
+    assert response.status_code == 204
+    for device in devices:
+        device.refresh_from_db()
+        assert device.enabled is False
+        assert device.provider_client_id is None

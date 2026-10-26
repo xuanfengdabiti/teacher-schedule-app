@@ -82,6 +82,8 @@ uv run --env-file .env python manage.py runserver
 - 课表：`GET /api/v1/sessions/`、`GET /api/v1/sessions/{id}/`
 - 教学班开课：`GET /api/v1/offerings/`
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
+- 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
+- 消息与设备：`GET /api/v1/notifications/`、`POST /api/v1/notifications/{id}/read/`、`PUT/DELETE /api/v1/devices/{installation_id}/`
 - Admin：<http://127.0.0.1:8000/admin/>
 
 ## 账号与认证（B01/B10 后端）
@@ -223,14 +225,23 @@ backend/
 │   ├── classrooms/      # 教室目录与教室非课程占用
 │   │   ├── admin.py
 │   │   └── migrations/
-│   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态
+│   ├── notifications/  # 消息、推送设备与投递记录骨架
+│   │   ├── services.py  # notify：事务内去重并建 pending 投递记录
+│   │   ├── views.py     # 消息游标分页、已读、设备绑定/注销
+│   │   ├── admin.py     # 三个模型只读列表
+│   │   ├── migrations/
+│   │   └── tests/
+│   └── scheduling/      # 排课规则、课次、授课教师、人员不可用、同步状态/变更日志
 │       ├── calendar.py  # 教学周与规则展开（纯函数，不查数据库）
-│       ├── services.py  # 课次生成事务服务（统一锁顺序）
+│       ├── changelog.py # ChangeEntry / record_changes，必须由调用方开启事务
+│       ├── services.py  # 课次生成事务服务（统一锁顺序，生成时写变更日志）
 │       ├── selectors.py # B13 可见范围、预取与当前学期查询
+│       ├── sync.py      # bootstrap 一致快照与 changes 增量接口
+│       ├── sync_serializers.py # /sync/ OpenAPI 响应 schema
 │       ├── reschedule_options.py # 只读调课候选、冲突和覆盖检查
 │       ├── serializers.py        # 课表读取、调课候选请求/响应/错误 schema
 │       ├── views.py     # 课表读取、调课候选查询接口
-│       ├── urls.py      # 课表读取与调课候选路由
+│       ├── urls.py      # 课表、调课候选与同步路由
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
@@ -246,8 +257,11 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 
 - Admin 的“学期”列表提供动作 **按规则生成课次**，调用 `apps.scheduling.services.generate_sessions_for_term`；事务内先锁 `SchoolSyncState`，再锁 `Term`。
 - 已存在的生成键（规则 + 原教学日期 + 原起始节）不会被改写，差异只计入 `mismatched` 供后续导入预览处理；新建课次时 `Term.schedule_version` 加 1。
+- 同一次生成事务内为每个新建课次写一条 `session` ChangeLog，并在有新建课次时写一条 `term` ChangeLog（version 为新的 `schedule_version`）；序号由 `apps.scheduling.changelog.record_changes` 在 `SchoolSyncState` 行锁下连续分配。
 - `ClassSession` 在 Admin 中仅可查看（不能新增、修改、删除）：完成量更正需要原因并走 B22 教学服务，正式课表变更走 B31 统一服务。
 - 校历 `cancel`/`custom`/`replace` 目标日上的基础课次保留为 `cancelled`，不删除。
+
+**写入口约定：** 今后所有修改课次、学期或校历的写入口（B12 导入、B31 正式调课、B22 完成确认、Admin 修改校历）都必须在**已有事务内**调用 `record_changes`，并与对象/版本更新同事务提交。`record_changes` 不再单独开启事务；这不是可选的审计日志，遗漏会让 App 增量同步永久跳过该变更。
 
 ## 课表查询（B13）
 
@@ -289,6 +303,46 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 读接口使用 `select_related` / `prefetch_related` 固定查询数：`scope=teaching_class` 的周课表在
 一周或六周范围均为 6 条查询（含 JWT 用户与教师档案查询），不随课次数增长。`pytest -m perf`
 用 20,000 课次规模验证 `scope=teaching_class` 一周请求。
+
+## 离线同步（B14）
+
+两个接口均需 JWT 且账号关联启用中的教师档案。
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/sync/bootstrap/` | 当前学期的一致快照：`cursor`、`assignment_scope_version`、`term`（与 `terms/{id}/calendar/` 同结构）、`offerings`、`sessions`（`SessionSummary`，含同教学班可见课次及 `is_mine`）、`generated_at`。没有当前学期时 `term=null`、列表为空。不分页。 |
+| `GET /api/v1/sync/changes/?cursor=` | 返回 cursor 之后最多 500 条日志对应的当前状态；`sessions` 只含当前可见课次，不可见课次不泄露存在性；`terms` 只含本校学期。响应含 `next_cursor`、`has_more`、`assignment_scope_version`、`reset_required`。 |
+
+`cursor` 是字符串形式、客户端不得解析的学校 `last_seq`。bootstrap 在
+`REPEATABLE READ READ ONLY` 事务中读取，cursor 和数据来自同一数据库快照；`generated_at`
+也由该请求生成。changes 的 `next_cursor` 取本页最后一条**原始日志**的 `change_seq`，即使该对象
+被可见性过滤掉也会推进，避免下一条不可见日志永久挡住后续变更。
+
+`reset_required=true` 时 HTTP 仍为 200、`sessions`/`terms` 为空：cursor 非法、超过当前
+`last_seq`，或早于该校仍保留的最小日志序号（`min_seq > cursor + 1`）。客户端应重新 bootstrap，
+并保留本地未同步草稿。同一实体在一页内出现多次时只返回数据库中的最新状态，不回放历史值。
+
+`pytest` 中的查询数测试覆盖 demo 学期与增加规则后的学期：bootstrap 固定为 15 条查询，无
+tombstone 的 changes 页固定为 10 条查询（均含 JWT/教师档案与事务控制），不随课次数量增长；
+含 tombstone 时额外一次 offering 可见性校验，仍是常数查询。
+
+## 消息与推送设备骨架（B14）
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `GET /api/v1/notifications/?cursor=&limit=` | 本人消息，按 `created_at`、`id` 倒序；服务端不透明游标，默认 20、最多 50。返回 `results`、`next_cursor`、`unread_count`；每项含 `id`、`type`、`object_type`、`object_id`、`title`、`body`、`created_at`、`read_at`、`is_read`。 |
+| `POST /api/v1/notifications/{id}/read/` | 标记已读；重复调用返回同一 `read_at`，他人消息 404。 |
+| `PUT /api/v1/devices/{installation_id}/` | 新建或更新本机设备；字段 `provider`、`provider_client_id`、`platform`、`enabled`（默认 true），同时更新 `last_seen_at`。同一 installation ID 属于其他账号时转移给当前账号。 |
+| `DELETE /api/v1/devices/{installation_id}/` | 只要求登录，不要求启用中的教师档案（设备属于账号；pending 或 TEACHER_DISABLED 时退出登录仍可解绑）。幂等注销本机设备：保留行、置 `enabled=false` 并清空 `provider_client_id`，返回 204；不存在或非本人同样 204。保留行是因为历史 `DeliveryAttempt` 使用 `PROTECT`，需保留投递审计。 |
+
+`apps.notifications.services.notify` 必须在业务事务内调用：recipient + event_key 已存在时返回
+`None`，不重复创建；新消息会为该教师账号下每个 enabled 且账号 `is_active=true` 的设备创建一条
+`pending` `DeliveryAttempt`，`next_attempt_at=now`。账号停用时 `deactivate_user` 在同一事务内调用
+`disable_device_bindings`，把该账号全部设备置为 `enabled=false` 并清空 `provider_client_id`；即使
+存在竞态遗留的 enabled 设备，`notify` 对停用账号也只建站内消息，不建投递。本切片**没有**真实推送通道、投递命令和重试：不会发送、
+不会把任何记录标成 `sent`，也没有“模拟发送成功”的路径。Admin 只读展示 Notification、
+DeviceRegistration、DeliveryAttempt，便于教务排查失败记录。设备可跨账号转移；B40 的实际发送
+实现必须在发送时复核设备仍属于该消息接收人，不能仅凭历史 `pending` 记录向新账号手机发送旧消息。
 
 ## 调课候选查询（B30）
 

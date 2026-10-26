@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.urls import path
 
+from apps.scheduling.sync import SyncBootstrapView, SyncChangesView
 from apps.scheduling.views import (
     OfferingListView,
     SessionDetailView,
@@ -24,4 +25,6 @@ urlpatterns = [
         name="session-reschedule-options",
     ),
     path("offerings/", OfferingListView.as_view(), name="offering-list"),
+    path("sync/bootstrap/", SyncBootstrapView.as_view(), name="sync-bootstrap"),
+    path("sync/changes/", SyncChangesView.as_view(), name="sync-changes"),
 ]

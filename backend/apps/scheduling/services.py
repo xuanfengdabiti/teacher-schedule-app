@@ -19,7 +19,15 @@ from django.db import transaction
 
 from apps.academics.models import CalendarException, Period, TeacherProfile, TeachingAssignment, Term
 from apps.scheduling import calendar
-from apps.scheduling.models import ClassSession, ScheduleRule, SchoolSyncState, SessionStatus, SessionTeacher
+from apps.scheduling.changelog import ChangeEntry, record_changes
+from apps.scheduling.models import (
+    ChangeEntityType,
+    ClassSession,
+    ScheduleRule,
+    SchoolSyncState,
+    SessionStatus,
+    SessionTeacher,
+)
 
 
 @dataclass(frozen=True)
@@ -133,7 +141,10 @@ def generate_sessions_for_term(term: Term) -> GenerationResult:
     The whole run is one transaction.  Only missing generation keys are created;
     existing sessions are left untouched (their differences land in
     ``GenerationResult.mismatched``) because B12 owns the update preview.  When
-    at least one session is created, ``term.schedule_version`` is incremented.
+    at least one session is created, ``term.schedule_version`` is incremented,
+    one ``session`` ChangeLog row is written per new session and one ``term``
+    row records the new schedule version.  All log rows share the generation
+    transaction and are allocated through the locked SchoolSyncState row.
     """
     with transaction.atomic():
         # Project-wide lock order: SchoolSyncState first, then the Term row
@@ -234,6 +245,23 @@ def generate_sessions_for_term(term: Term) -> GenerationResult:
             locked_term.save(update_fields=["schedule_version", "updated_at"])
             # Keep the caller's instance in sync with the persisted version.
             term.schedule_version = locked_term.schedule_version
+            changes = [
+                ChangeEntry(
+                    entity_type=ChangeEntityType.SESSION,
+                    entity_id=session.id,
+                    version=session.version,
+                    offering_id=session.offering_id,
+                )
+                for session in new_sessions
+            ]
+            changes.append(
+                ChangeEntry(
+                    entity_type=ChangeEntityType.TERM,
+                    entity_id=locked_term.id,
+                    version=locked_term.schedule_version,
+                )
+            )
+            record_changes(locked_term.school_id, changes)
 
         return GenerationResult(
             created=len(created_ids),
