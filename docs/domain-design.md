@@ -77,7 +77,7 @@
 | Enrollment / TeachingAssignment | Enrollment：offering_id、student_id、effective_from、effective_until，三元组 offering_id+student_id+effective_from 唯一；索引 student_id+effective_from+effective_until 及 offering_id+effective_from。任课同理，增加 role。服务层拒绝同一对象同一人员的重叠有效期；数据库检查 until>from |
 | Classroom / RoomBlock / PersonBlock | 教室：school_id+campus+building+room_no 唯一，capacity≥0，equipment 为代码集合。RoomBlock 索引 room_id+start_at，检查 end_at>start_at。PersonBlock 为 teacher_id/student_id 两个可空 FK 且恰好填写一个，索引分别为 teacher_id+start_at、student_id+start_at；同样检查时间正长 |
 | ScheduleRule / ClassSession / SessionTeacher | Rule：offering_id、weeks 列表、weekday、period_start/end、classroom_id、source_key；源 key 在来源范围内唯一。Session：offering_id、start_at、end_at、origin_teaching_date、origin_period、rule_id 可空、classroom_id、status、planned_hours≥0、actual_hours、completed_by_teacher_id/at、completion_ref、recorded_by_user_id、version；scheduled 的 actual_hours 为空，completed 必填非负量和教师确认来源，cancelled 为 0；检查 end_at>start_at；索引 offering_id+start_at、classroom_id+start_at。规则生成键 rule_id+origin_teaching_date+origin_period 唯一且调课后不变；SessionTeacher：session_id+teacher_id 唯一，索引 teacher_id+session_id |
-| SessionChange / RescheduleRequest | Change：session_id、before_json、after_json、session_version、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_start/end、target_classroom_id、base_session_version、checked_schedule_version、check_summary、status、decision_by/at/ref；索引 applicant_id+created_at、status+created_at；状态迁移与正式生效统一服务 |
+| SessionChange / RescheduleRequest | Change：session_id、request_id 可空、before_json、after_json、session_version、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_date、target_start_period/end_period、target_start_at/end_at、target_classroom_id、reason、base_session_version、checked_schedule_version、check_summary、status、needs_verification、decision_by/at/ref/note、forced_override；索引 applicant_id+created_at、status+created_at；同一课次+申请人的 submitted 申请唯一；状态迁移与正式生效统一服务 |
 | TeachingNote / Handoff | Note：session_id+author_id 唯一，draft_body 与 published_body 分开、published_at、published_version、version；保存草稿不覆盖已发布快照。Handoff：offering_id、note_id/version 可空、sender_id、recipient_id、target_session_id 可空、content_snapshot、status、read_at、acknowledged_at；索引 recipient_id+status+created_at，acknowledged 必须有确认时间；一条交接一个接收人 |
 | TeachingPlan / PlanItem / SessionProgress | Plan：offering_id 一对一、owner_id、baseline_version、status、version。Item：plan_id+position 唯一，title、planned_hours≥0、due_date 或 due_session_id、baseline_version。Progress：session_id+plan_item_id 唯一、actual_hours≥0；索引 plan_item_id。每次完成确认事务校验分配和≤课次实际学时、专题与课次同属一个 Offering |
 | Inquiry / InquiryRecipient / InquiryReply | Inquiry：initiator_id、classroom_id、from_at、to_at、item_description、status、closed_at、close_note；索引 initiator_id+status+created_at，检查 to_at>from_at。Recipient：inquiry_id+teacher_id 唯一，related_session_ids 快照。Reply：inquiry_id、author_id、result=not_seen/in_custody/other、body、created_at；索引 inquiry_id+created_at。允许同一接收人补充回复，每条回复追加保存；只有发起人结案 |
@@ -131,7 +131,7 @@
 | `conflict` 有冲突 | 显示明确冲突原因，仅供查看；不显示“推荐”，不能以绿色表示可直接调课 |
 | `unverified` 待核验 | 例如缺实际选课名单、未导入其他学院课程、教室维修占用不完整；明确列出缺哪类数据，不能写“无冲突” |
 
-参考图中“学生冲突 1 人”的时段不能继续放在正常推荐列表。若既有已知冲突又缺数据，分类优先为 conflict，同时列出缺失数据；无已知冲突且数据不完整才是 unverified。首版允许保存草稿；conflict 不能普通提交，unverified 可以保存待核验事项，但正式确认前必须有明确处理结果。
+参考图中“学生冲突 1 人”的时段不能继续放在正常推荐列表。若既有已知冲突又缺数据，分类优先为 conflict，同时列出缺失数据；无已知冲突且数据不完整才是 unverified。首版允许保存草稿；conflict 只能保存草稿、不能提交，unverified 可以提交为标记 `needs_verification` 的申请，但不能普通批准，正式确认前必须有学校核验结果或走强制登记。
 
 结果先按 available / conflict / unverified 分组，只有 available 称为推荐。组内采用透明排序：同教室 → 与原上课日期的绝对天数差更小 → 与原开始时间的分钟差更小 → 开始时间、结束时间、教室编号稳定排序。不额外插入“同校区优先”改变这一基线。若校园有跨校区通勤要求，学校可配置缓冲分钟，作为候选与正式确认共同使用的条件；首版不计算地图路线。
 
@@ -139,10 +139,16 @@
 
 申请状态：`draft → submitted → approved / rejected / withdrawn`。学校可以继续使用现有线下流程；管理员在现成后台记录学校批准结果，即可完成 APP 首版闭环，不强制对接学校审批接口。
 
-- 提交前重跑冲突查询；申请保存查询摘要、课次版本及查询时间。候选结果不是资源预订，其他老师仍可能调整同一时段。
-- 批准生效时，按统一顺序先锁 SchoolSyncState 再锁本学期 Term 行，再检查当前课次版本与目标资源；通过后在同一事务内更新课次、递增课次/学期版本、写变更与同步日志、创建通知及待投递记录。导入和人工日程修改也走同一入口。若发现新冲突，保留申请并提示管理员重新核对，不直接覆盖。
-- 待审批期间首页继续显示原安排；批准后首页显示新安排及变更提示，原日期可在变更记录中查看。
-- 对存在已知冲突或缺数据但学校已经批准的外部结果，管理员使用独立的“登记学校强制安排”动作，必填审批编号/说明、保留风险标记并通知；普通教师不能绕过。不能将这种课次标成“系统已确认无冲突”。
+已确定的实现口径（B31）：
+
+- 一次申请只对应一个课次。调课保持课次 UUID、现有 SessionTeacher 集合、planned_hours 和节次数不变，只允许改变目标日期、节次和教室。批量调课、换课、换教师和拆并课不在本版本范围。
+- 申请人必须是该课次的实际授课教师，或该 offering 当前有效的任课教师。提交时服务端重新检查目标，不能沿用候选查询的旧结果。`available` 可直接提交；`unverified` 可提交，但申请标记 `needs_verification=true`；`conflict` 只能保存草稿，提交返回 409 `RESCHEDULE_CONFLICT` 并附冲突明细。
+- 硬条件不满足时返回 409 `TARGET_NOT_ALLOWED` 和中文原因，不保存为提交状态。硬条件包括：目标节次存在且连续、属于同一时段组（不能跨午休/上下午）、不在过去、在学期教学周内、目标日无任何校历例外、遵守调用方传入的周末策略、教室启用且属于本校、容量满足目标日实际选课人数、必需设备满足、目标节次数与源课次一致。硬条件不能被强制安排绕过。
+- 同一课次同一申请人已有 `submitted` 申请时，不允许再提交新的申请（409 `REQUEST_ALREADY_PENDING`）；草稿数量不受限制。
+- 撤回仅允许申请人本人操作，`draft`/`submitted` 变为 `withdrawn`；其他状态返回 409 `REQUEST_NOT_WITHDRAWABLE`。撤回和驳回都不修改课表。普通教师不能批准申请。
+- 普通批准只适用于事务内重新检查结果为 `available` 的申请。`unverified` 或 `conflict` 不能普通批准（统一写入口分别返回 `DATA_UNVERIFIED`/`SCHEDULE_CONFLICT`，附评估结果）；学校已书面批准时，管理员使用“登记学校强制安排”，必填学校审批编号/依据，记录 `forced_override=true`、风险说明和评估快照。强制安排不能绕过上述硬条件。
+- 批准生效时，按统一顺序先锁 SchoolSyncState，再锁本学期 Term 行，再锁 RescheduleRequest 行，最后锁 ClassSession 行，并在锁内重新检查当前课次版本与目标资源；通过后在同一事务内更新课次、递增课次/学期版本、写 SessionChange 前后快照与同步日志、创建通知及待投递记录。导入等不由申请发起的写入口同样先锁 State/Term，再按需锁申请或课次。申请本身不占用教室。
+- 若批准时发现新冲突或数据缺口，申请保持 `submitted`，服务端把最新评估写回 `check_summary` 并返回业务错误；不直接覆盖，也不把课次移动到未确认目标。待审批期间首页继续显示原安排；批准后显示新安排及变更提示，原日期可在变更记录中查看。
 - 首版不支持交换两节课、批量连环调课和抢占预约，也不提供“一次确认两条变更”的隐含换课入口。交换课统一列为后续版本能力。
 
 ## 5. 教学备注与多教师交接

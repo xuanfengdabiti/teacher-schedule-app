@@ -1,7 +1,8 @@
-"""HTTP endpoints for schedule reads (B13) and reschedule options (B30).
+"""HTTP endpoints for schedule reads (B13), reschedule options (B30) and
+teacher reschedule requests (B31).
 
-The read endpoints never create or change sessions; B31 owns applications,
-approval and formal effective changes.
+Request creation/submission/withdrawal never changes the timetable.  Approval is
+Admin-only and calls the transaction service in ``scheduling.changes``.
 """
 
 from __future__ import annotations
@@ -25,26 +26,39 @@ from rest_framework.views import APIView
 from apps.academics.models import TeacherProfile, Term
 from apps.academics.selectors import active_student_ids
 from apps.accounts.services import require_active_teacher
-from apps.scheduling.models import ClassSession, SessionStatus, SessionTeacher
+from apps.classrooms.models import Classroom
+from apps.scheduling.models import ClassSession, RescheduleRequest, SessionStatus
+from apps.scheduling.requests import (
+    RescheduleRequestError,
+    create_request,
+    submit_request,
+    withdraw_request,
+)
 from apps.scheduling.reschedule_options import (
     OptionQuery,
     RescheduleOptionsError,
     find_reschedule_options,
 )
 from apps.scheduling.selectors import (
-    active_assignments_for_teacher,
+    can_reschedule_session,
     current_term_for_school,
     session_local_date,
     visible_offerings_for_read,
     visible_offerings_for_teacher,
+    visible_reschedule_requests,
     visible_sessions_for_read,
     visible_teaching_classes_for_teacher,
 )
 from apps.scheduling.serializers import (
     OfferingSerializer,
+    PaginatedRescheduleRequestListSerializer,
     RescheduleOptionsErrorSerializer,
     RescheduleOptionsQuerySerializer,
     RescheduleOptionsResponseSerializer,
+    RescheduleRequestCreateSerializer,
+    RescheduleRequestErrorSerializer,
+    RescheduleRequestListQuerySerializer,
+    RescheduleRequestSerializer,
     ScheduleErrorSerializer,
     SessionDetailSerializer,
     SessionListResponseSerializer,
@@ -56,10 +70,7 @@ from apps.scheduling.serializers import (
 
 def _authorised_teacher_or_403(request: Request, session: ClassSession) -> TeacherProfile:
     profile = require_active_teacher(request.user)
-
-    if SessionTeacher.objects.filter(session=session, teacher=profile).exists():
-        return profile
-    if active_assignments_for_teacher(profile).filter(offering_id=session.offering_id).exists():
+    if can_reschedule_session(profile, session):
         return profile
     raise PermissionDenied("只有该课次的授课教师或课程任课教师可以查询调课候选。")
 
@@ -114,6 +125,168 @@ def reschedule_options(request: Request, session_id: UUID) -> Response:
 
     response_serializer = RescheduleOptionsResponseSerializer(result)
     return Response(response_serializer.data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# B31 reschedule requests
+# ---------------------------------------------------------------------------
+
+
+def _workflow_error_response(exc: RescheduleRequestError) -> Response:
+    return Response(exc.as_dict(), status=exc.status_code)
+
+
+class RescheduleRequestPagination(PageNumberPagination):
+    page_size = 50
+
+
+class RescheduleRequestListCreateView(APIView):
+    permission_classes = (IsAuthenticated,)
+    pagination_class = RescheduleRequestPagination
+
+    @extend_schema(
+        summary="调课申请列表",
+        description=(
+            "scope=mine 返回本人申请；scope=related 返回本人可见课次上的申请，"
+            "包括同教学班教师可见的关联申请。按 created_at 倒序，DRF 标准分页。"
+        ),
+        parameters=[RescheduleRequestListQuerySerializer],
+        responses={
+            200: PaginatedRescheduleRequestListSerializer,
+            400: RescheduleRequestErrorSerializer,
+            403: ScheduleErrorSerializer,
+        },
+    )
+    def get(self, request: Request) -> Response:
+        teacher = require_active_teacher(request.user)
+        query = RescheduleRequestListQuerySerializer(data=request.query_params)
+        if not query.is_valid():
+            return _error_response(
+                query.errors,
+                code="VALIDATION_ERROR",
+                detail="查询参数有误。",
+            )
+        params = query.validated_data
+        queryset = visible_reschedule_requests(teacher, scope=params["scope"])
+        if params.get("status"):
+            queryset = queryset.filter(status=params["status"])
+        queryset = queryset.order_by("-created_at", "-id")
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        serializer = RescheduleRequestSerializer(page, many=True, context={"teacher": teacher})
+        return paginator.get_paginated_response(serializer.data)
+
+    @extend_schema(
+        summary="创建调课申请",
+        description=(
+            "submit=true（默认）时服务端重新检查目标；available 直接提交，unverified 提交并标记待核验，"
+            "conflict 返回 409 RESCHEDULE_CONFLICT 且不创建记录。submit=false 可保存 conflict 草稿。"
+            "目标硬条件不满足返回 409 TARGET_NOT_ALLOWED。申请不改变正式课表。"
+        ),
+        request=RescheduleRequestCreateSerializer,
+        responses={
+            201: RescheduleRequestSerializer,
+            400: RescheduleRequestErrorSerializer,
+            403: ScheduleErrorSerializer,
+            404: None,
+            409: RescheduleRequestErrorSerializer,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        teacher = require_active_teacher(request.user)
+        serializer = RescheduleRequestCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _error_response(
+                serializer.errors,
+                code="VALIDATION_ERROR",
+                detail="调课申请输入有误。",
+            )
+        payload = serializer.validated_data
+        session = get_object_or_404(
+            ClassSession.objects.select_related(
+                "offering__term",
+                "offering__course",
+                "offering__teaching_class",
+                "classroom",
+            ),
+            pk=payload["session_id"],
+        )
+        classroom = Classroom.objects.filter(pk=payload["target_classroom_id"]).first()
+        if classroom is None:
+            return _error_response(
+                {"target_classroom_id": ["目标教室不存在。"]},
+                code="VALIDATION_ERROR",
+                detail="目标教室不存在。",
+            )
+
+        try:
+            request_obj = create_request(
+                teacher,
+                session,
+                target_date=payload["target_date"],
+                target_start_period=payload["target_start_period"],
+                target_end_period=payload["target_end_period"],
+                target_classroom=classroom,
+                reason=payload["reason"],
+                submit=payload["submit"],
+                now=timezone.now(),
+            )
+        except RescheduleRequestError as exc:
+            return _workflow_error_response(exc)
+        return Response(
+            RescheduleRequestSerializer(request_obj, context={"teacher": teacher}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class RescheduleRequestSubmitView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(
+        summary="提交调课申请草稿",
+        description="仅申请人可提交草稿；服务端重新检查目标，conflict 返回 409 且保持 draft。",
+        request=None,
+        responses={
+            200: RescheduleRequestSerializer,
+            400: RescheduleRequestErrorSerializer,
+            403: ScheduleErrorSerializer,
+            404: None,
+            409: RescheduleRequestErrorSerializer,
+        },
+    )
+    def post(self, request: Request, request_id: UUID) -> Response:
+        teacher = require_active_teacher(request.user)
+        request_obj = get_object_or_404(RescheduleRequest, pk=request_id)
+        try:
+            request_obj = submit_request(request_obj, teacher, timezone.now())
+        except RescheduleRequestError as exc:
+            return _workflow_error_response(exc)
+        return Response(RescheduleRequestSerializer(request_obj, context={"teacher": teacher}).data)
+
+
+class RescheduleRequestWithdrawView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(
+        summary="撤回调课申请",
+        description="仅申请人可撤回 draft/submitted；撤回不改变课表。",
+        request=None,
+        responses={
+            200: RescheduleRequestSerializer,
+            403: ScheduleErrorSerializer,
+            404: None,
+            409: RescheduleRequestErrorSerializer,
+        },
+    )
+    def post(self, request: Request, request_id: UUID) -> Response:
+        teacher = require_active_teacher(request.user)
+        request_obj = get_object_or_404(RescheduleRequest, pk=request_id)
+        try:
+            request_obj = withdraw_request(request_obj, teacher)
+        except RescheduleRequestError as exc:
+            return _workflow_error_response(exc)
+        return Response(RescheduleRequestSerializer(request_obj, context={"teacher": teacher}).data)
 
 
 # ---------------------------------------------------------------------------

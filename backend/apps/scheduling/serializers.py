@@ -10,6 +10,7 @@ from rest_framework import serializers
 
 from apps.academics.models import CoverageKind
 from apps.scheduling.calendar import teaching_week
+from apps.scheduling.models import RescheduleStatus
 from apps.scheduling.reschedule_options import (
     CONFLICT_CLASSROOM,
     CONFLICT_STUDENT,
@@ -74,6 +75,140 @@ class RescheduleOptionsResponseSerializer(serializers.Serializer):
     checked_at = serializers.DateTimeField(default_timezone=None)
     data_completeness = serializers.ChoiceField(choices=("complete", "partial"))
     options = RescheduleOptionSerializer(many=True)
+
+
+# ---------------------------------------------------------------------------
+# B31 reschedule requests
+# ---------------------------------------------------------------------------
+
+
+class RescheduleRequestCreateSerializer(serializers.Serializer):
+    """Input for creating a draft or submitting a request immediately."""
+
+    session_id = serializers.UUIDField()
+    target_date = serializers.DateField()
+    target_start_period = serializers.IntegerField(min_value=1)
+    target_end_period = serializers.IntegerField(min_value=1)
+    target_classroom_id = serializers.UUIDField()
+    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    submit = serializers.BooleanField(required=False, default=True)
+
+    def validate(self, attrs):
+        if attrs["target_end_period"] < attrs["target_start_period"]:
+            raise serializers.ValidationError({"target_end_period": ["结束节不能早于起始节。"]})
+        return attrs
+
+
+class RescheduleRequestListQuerySerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=("mine", "related"), default="mine")
+    status = serializers.ChoiceField(choices=RescheduleStatus.choices, required=False)
+
+
+class RescheduleRequestErrorSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    detail = serializers.CharField()
+    field_errors = serializers.DictField(child=serializers.ListField(child=serializers.CharField()))
+    evaluation = serializers.JSONField(required=False, allow_null=True)
+    current_version = serializers.IntegerField(required=False, allow_null=True)
+
+
+class RescheduleRequestSessionSummarySerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    course_name = serializers.CharField()
+    date = serializers.DateField()
+    start_period = serializers.IntegerField()
+    end_period = serializers.IntegerField()
+    classroom_code = serializers.CharField()
+
+
+class RescheduleTargetClassroomSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    classroom_code = serializers.CharField()
+
+
+class RescheduleRequestTargetSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    start_period = serializers.IntegerField()
+    end_period = serializers.IntegerField()
+    start_at = serializers.DateTimeField()
+    end_at = serializers.DateTimeField()
+    classroom = RescheduleTargetClassroomSerializer()
+    classroom_id = serializers.UUIDField()
+    classroom_code = serializers.CharField()
+
+
+class RescheduleRequestApplicantSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.CharField())
+    def get_name(self, obj) -> str:
+        return _teacher_name(obj)
+
+
+class RescheduleRequestSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    session = serializers.SerializerMethodField()
+    target = serializers.SerializerMethodField()
+    reason = serializers.CharField()
+    status = serializers.ChoiceField(choices=RescheduleStatus.choices)
+    needs_verification = serializers.BooleanField()
+    check_summary = serializers.JSONField()
+    decision_note = serializers.CharField()
+    decided_at = serializers.SerializerMethodField()
+    forced_override = serializers.BooleanField()
+    applicant = RescheduleRequestApplicantSerializer()
+    can_withdraw = serializers.SerializerMethodField()
+
+    @extend_schema_field(RescheduleRequestSessionSummarySerializer)
+    def get_session(self, obj) -> dict:
+        session = obj.session
+        return {
+            "id": str(session.id),
+            "course_name": session.offering.course.name,
+            "date": session_local_date(session).isoformat(),
+            "start_period": session.start_period,
+            "end_period": session.end_period,
+            "classroom_code": session.classroom.classroom_code,
+        }
+
+    @extend_schema_field(RescheduleRequestTargetSerializer)
+    def get_target(self, obj) -> dict:
+        return {
+            "date": obj.target_date.isoformat(),
+            "start_period": obj.target_start_period,
+            "end_period": obj.target_end_period,
+            "start_at": _iso_datetime(obj.target_start_at, obj.session.offering.term),
+            "end_at": _iso_datetime(obj.target_end_at, obj.session.offering.term),
+            "classroom": {
+                "id": str(obj.target_classroom_id),
+                "classroom_code": obj.target_classroom.classroom_code,
+            },
+            "classroom_id": str(obj.target_classroom_id),
+            "classroom_code": obj.target_classroom.classroom_code,
+        }
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_decided_at(self, obj) -> str | None:
+        if obj.decided_at is None:
+            return None
+        return _iso_datetime(obj.decided_at, obj.session.offering.term)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_withdraw(self, obj) -> bool:
+        teacher = self.context.get("teacher")
+        return bool(
+            teacher is not None
+            and obj.applicant_id == teacher.id
+            and obj.status in {RescheduleStatus.DRAFT, RescheduleStatus.SUBMITTED}
+        )
+
+
+class PaginatedRescheduleRequestListSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = RescheduleRequestSerializer(many=True)
 
 
 # ---------------------------------------------------------------------------

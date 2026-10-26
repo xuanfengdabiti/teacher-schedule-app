@@ -141,14 +141,14 @@ flowchart LR
 - 检查必须出席教师集合、实际选课学生集合、教室占用，以及可导入的教师/学生不可用时段；时间重叠使用左闭右开区间，上一课 09:40 结束、下一课 09:40 开始不冲突。
 - 需保留课间/跨楼移动缓冲时，由学校配置分钟数，默认 0；配置后同时进入筛选和最终确认，避免两处算法不同。
 - 返回冲突类别、涉及课程、学生冲突人数、选课数据时间、校历/课表版本。普通教师界面以人数为主，不必展示全校学生名单。
-- 候选枚举固定为 available / conflict / unverified：所有必要数据完整且无硬冲突才可推荐；缺选课名单/全校占用等为待核验，仅可保存草稿；有已知硬冲突时归为 conflict 并同时说明数据缺口，不能普通提交。
+- 候选枚举固定为 available / conflict / unverified：所有必要数据完整且无硬冲突才可推荐；缺选课名单/全校占用等为待核验，可提交为标记 `needs_verification` 的申请，但不能普通批准；有已知硬冲突时归为 conflict 并同时说明数据缺口，只能保存草稿，不能提交。
 - 排序采用明确规则：无冲突且数据完整优先 → 同教室 → 离原日期更近 → 原上课时间段相近 → 日期时间/教室编号稳定排序。v1 不需要大模型或全局排课求解器。
 
 #### 申请与生效
 
 `draft → submitted → approved / rejected / withdrawn`。申请只作为意向，不占用候选教室；页面说明“待学校批准”。
 
-教务确认时，统一调用 reschedule service：先锁 SchoolSyncState，再锁学期 Term 行 → 重新读取目标时段与实际选课名单 → 再次检查 → 更新同一 ClassSession 的时间/教室/version 和学期 schedule_version → 保存前后快照和审批依据 → 写入同步日志、站内消息及待投递记录 → 提交事务。导入和教务手改课也经过相同写入口，所有服务采用同一锁顺序；单校试点规模用简单串行写入即可。
+教务确认时，统一调用 reschedule service：先锁 SchoolSyncState，再锁学期 Term 行，再锁 RescheduleRequest 行 → 重新读取目标时段与实际选课名单 → 再次检查 → 锁 ClassSession 并更新其时间/教室/version 和学期 schedule_version → 保存前后快照和审批依据 → 写入同步日志、站内消息及待投递记录 → 提交事务。导入和教务手改课也经过相同写入口，所有服务采用同一锁顺序；单校试点规模用简单串行写入即可。
 
 若两个申请同时竞争一个时段，先确认者成功，后确认者保持待处理并给出新冲突。若学校批准的是有已知冲突或数据缺口的特殊安排，不能静默强行通过：走 Admin 的“登记学校强制安排”，必填审批编号/说明、标记安排风险、同样保留历史并通知。该操作不归普通教师。
 
@@ -253,8 +253,8 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 教学班 | `GET offerings/` | 任课范围与同教学班开课；DRF 标准分页，page_size 50。班级周课表改由 `GET sessions/?scope=teaching_class&teaching_class_id=` 提供 |
 | 课次 | `GET sessions/{id}/` | 授课教师、教室、当前版本、学时与有效选课人数；不在本人可见范围返回 404 |
 | 调课 | `POST sessions/{id}/reschedule-options/` | 返回分组候选、数据完整性和快照版本 |
-| 申请 | `POST reschedule-requests/`、`GET reschedule-requests/`、`POST reschedule-requests/{id}/withdraw/` | source_session_id + candidate + reason |
-| 审批 | Admin action 调用服务；将来可加 `POST reschedule-requests/{id}/decision/` | 不向普通教师开放 |
+| 申请 | `POST reschedule-requests/`、`GET reschedule-requests/?scope=mine\|related&status=`、`POST reschedule-requests/{id}/submit/`、`POST reschedule-requests/{id}/withdraw/` | 创建字段 `session_id`、`target_date`、`target_start_period`、`target_end_period`、`target_classroom_id`、`reason`、`submit`（默认 true）；列表按 created_at 倒序、DRF 分页 |
+| 审批 | Admin 三个 action 调用服务：普通批准并生效、驳回、登记学校强制安排 | 不向普通教师开放审批 API；强制安排必须填写学校审批编号/依据 |
 | 备注 | `GET sessions/{id}/notes/`、`PUT sessions/{id}/notes/mine/`、`POST sessions/{id}/notes/mine/publish/` | PUT 仅存 draft，显式 publish 更新发布快照；带 base_version |
 | 交接 | `POST handoffs/`、`GET handoffs/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 显式确认；发送者仅可撤回未确认项；重复确认返回同一结果 |
 | 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | 负责人保存章节与分配 |
@@ -296,6 +296,15 @@ B14 的同步与消息合同：
 ```
 
 采用 HTTP 状态：400 输入问题；401 需重新登录；403 无当前课程操作权限；404 对象不存在；409 版本变化/调课冲突。组件原生错误由统一适配层转换，页面按 code 展示动作，不通过中文字符串匹配业务分支。
+
+B31 调课申请合同：
+
+- `POST reschedule-requests/` 成功创建返回 201。`submit=true` 时重新检查目标：`available` 直接提交；`unverified` 提交并置 `needs_verification=true`；`conflict` 返回 409 `RESCHEDULE_CONFLICT`，不创建记录，响应附 `evaluation`（eligibility/conflicts/missing_data/reasons）。`submit=false` 可保存 conflict 草稿。
+- 硬条件不满足返回 409 `TARGET_NOT_ALLOWED`，不保存提交；同一课次同一申请人已有待审批申请返回 409 `REQUEST_ALREADY_PENDING`，草稿不限制。
+- `GET reschedule-requests/` 的 `scope=mine` 为本人申请，`scope=related` 为本人可见课次上的申请（含同教学班教师关联申请）；`status` 可选。按 created_at 倒序，标准分页 `{count,next,previous,results}`，不可见申请 404。
+- `POST reschedule-requests/{id}/submit/` 仅申请人把 draft 提交，重新检查失败返回 409 且保持 draft。`POST .../withdraw/` 仅申请人把 draft/submitted 改为 withdrawn；其他状态 409 `REQUEST_NOT_WITHDRAWABLE`，不改课表。
+- 驳回不改课表并通知申请人。普通批准在事务锁内再次检查，只有 `available` 可生效；`unverified`/`conflict` 必须使用“登记学校强制安排”，必填学校审批编号/依据并记录 `forced_override=true` 与风险说明。硬条件不能被强制安排绕过。
+- 生效更新同一课次 ID 的日期、节次、教室和 version，递增学期 `schedule_version`，写 SessionChange 前后快照、session+term ChangeLog，并在同一事务内通知该课次每位 SessionTeacher（`schedule_changed`）和申请人（`reschedule_result`）。原日期查询不再返回该课次，sync/changes 返回新状态。
 
 候选返回示例（字段示意，不视为已实现接口）：
 
