@@ -171,3 +171,127 @@ def handoff_empty_content() -> HandoffError:
         status_code=HTTPStatus.BAD_REQUEST,
         field_errors={"content": ["交接内容不能为空。"]},
     )
+
+
+class TeachingProgressError(Exception):
+    """Business failure for B22 plans, completion and progress reads."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        detail: str,
+        status_code: int,
+        field_errors: dict[str, list[str]] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+        self.field_errors = field_errors or {}
+        self.extra = extra or {}
+
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "code": self.code,
+            "detail": self.detail,
+            "field_errors": self.field_errors,
+        }
+        payload.update(self.extra)
+        return payload
+
+
+def progress_not_found(detail: str = "对象不存在或不在本人可见范围。") -> TeachingProgressError:
+    return TeachingProgressError(code="NOT_FOUND", detail=detail, status_code=HTTPStatus.NOT_FOUND)
+
+
+def progress_not_offering_teacher() -> TeachingProgressError:
+    return TeachingProgressError(
+        code="NOT_OFFERING_TEACHER",
+        detail="只有该课程开设的当前任课教师或该开设课次的授课教师可以查看教学计划与进度。",
+        status_code=HTTPStatus.FORBIDDEN,
+    )
+
+
+def not_plan_owner() -> TeachingProgressError:
+    return TeachingProgressError(
+        code="NOT_PLAN_OWNER",
+        detail="只有该课程开设的课程负责人可以保存教学计划。",
+        status_code=HTTPStatus.FORBIDDEN,
+    )
+
+
+def plan_version_conflict(current: dict[str, Any] | None) -> TeachingProgressError:
+    return TeachingProgressError(
+        code="PLAN_VERSION_CONFLICT",
+        detail="教学计划已在其他设备更新，请重新读取后再保存。",
+        status_code=HTTPStatus.CONFLICT,
+        extra={"current": current},
+    )
+
+
+def invalid_plan(detail: str, *, field_errors: dict[str, list[str]] | None = None) -> TeachingProgressError:
+    return TeachingProgressError(
+        code="INVALID_PLAN",
+        detail=detail,
+        status_code=HTTPStatus.BAD_REQUEST,
+        field_errors=field_errors,
+    )
+
+
+def completion_not_session_teacher() -> TeachingProgressError:
+    return TeachingProgressError(
+        code="NOT_SESSION_TEACHER",
+        detail="只有该课次的实际授课教师可以确认或更正授课完成。",
+        status_code=HTTPStatus.FORBIDDEN,
+    )
+
+
+def session_version_conflict(current: dict[str, Any]) -> TeachingProgressError:
+    return TeachingProgressError(
+        code="SESSION_VERSION_CONFLICT",
+        detail="课次完成信息已更新，请重新读取后再提交。",
+        status_code=HTTPStatus.CONFLICT,
+        extra={"current": current},
+    )
+
+
+def invalid_completion_transition(detail: str) -> TeachingProgressError:
+    return TeachingProgressError(
+        code="INVALID_COMPLETION_TRANSITION",
+        detail=detail,
+        status_code=HTTPStatus.CONFLICT,
+    )
+
+
+def invalid_completion(detail: str, *, field_errors: dict[str, list[str]] | None = None) -> TeachingProgressError:
+    return TeachingProgressError(
+        code="INVALID_COMPLETION",
+        detail=detail,
+        status_code=HTTPStatus.BAD_REQUEST,
+        field_errors=field_errors,
+    )
+
+
+def invalid_allocation(detail: str, *, field: str = "allocations") -> TeachingProgressError:
+    return TeachingProgressError(
+        code="INVALID_ALLOCATION",
+        detail=detail,
+        status_code=HTTPStatus.BAD_REQUEST,
+        field_errors={field: [detail]},
+    )
+
+
+def allocation_exceeds(total: Any, limit: Any) -> TeachingProgressError:
+    from apps.teaching.hours import hours_string
+
+    total_text = hours_string(total)
+    limit_text = hours_string(limit)
+    return TeachingProgressError(
+        code="ALLOCATION_EXCEEDS_SESSION_HOURS",
+        detail=f"专题分配合计 {total_text} 学时，超过本课次实际学时 {limit_text}。",
+        status_code=HTTPStatus.BAD_REQUEST,
+        field_errors={"allocations": [f"合计不能超过本课次实际学时 {limit_text}。"]},
+        extra={"allocation_total": total_text, "session_actual_hours": limit_text},
+    )

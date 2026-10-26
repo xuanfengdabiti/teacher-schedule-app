@@ -197,6 +197,11 @@ TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
 USE_TZ = True
 
+# B23: a due plan is "behind" only when the sum of due shortfalls reaches this
+# Decimal threshold.  Keep it a string here; the progress service parses it
+# with Decimal and rejects floats.
+PLAN_BEHIND_THRESHOLD_HOURS = os.environ.get("PLAN_BEHIND_THRESHOLD_HOURS", "2.0")
+
 # ---------------------------------------------------------------------------
 # rest framework & OpenAPI schema
 # ---------------------------------------------------------------------------
