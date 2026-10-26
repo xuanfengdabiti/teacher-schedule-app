@@ -410,6 +410,157 @@ class ChangeEntityType(models.TextChoices):
     TERM = "term", _("学期")
 
 
+class RescheduleStatus(models.TextChoices):
+    DRAFT = "draft", _("草稿")
+    SUBMITTED = "submitted", _("待审批")
+    APPROVED = "approved", _("已批准")
+    REJECTED = "rejected", _("已驳回")
+    WITHDRAWN = "withdrawn", _("已撤回")
+
+
+class RescheduleRequest(TimeStampedUUIDModel):
+    """A teacher's intent to move one session; it never reserves a room.
+
+    The request keeps a stable reference to the source session and the target
+    values.  Approval goes through ``scheduling.changes.apply_session_change``,
+    which rechecks the target under row locks.  ``check_summary`` is a point-in-
+    time explanation, not an authorisation to bypass a later recheck.
+    """
+
+    session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.PROTECT,
+        related_name="reschedule_requests",
+        verbose_name=_("源课次"),
+    )
+    applicant = models.ForeignKey(
+        TeacherProfile,
+        on_delete=models.PROTECT,
+        related_name="reschedule_requests",
+        verbose_name=_("申请人"),
+    )
+    target_date = models.DateField(_("目标日期"))
+    target_start_period = models.PositiveSmallIntegerField(
+        _("目标开始节"),
+        validators=[MinValueValidator(1)],
+    )
+    target_end_period = models.PositiveSmallIntegerField(
+        _("目标结束节"),
+        validators=[MinValueValidator(1)],
+    )
+    target_start_at = models.DateTimeField(_("目标开始时间"))
+    target_end_at = models.DateTimeField(_("目标结束时间"))
+    target_classroom = models.ForeignKey(
+        Classroom,
+        on_delete=models.PROTECT,
+        related_name="reschedule_requests",
+        verbose_name=_("目标教室"),
+    )
+    reason = models.TextField(_("调课说明"))
+    status = models.CharField(
+        _("状态"),
+        max_length=16,
+        choices=RescheduleStatus.choices,
+        default=RescheduleStatus.DRAFT,
+    )
+    base_session_version = models.PositiveIntegerField(_("提交时源课次版本"))
+    checked_schedule_version = models.PositiveIntegerField(_("检查时课表版本"))
+    check_summary = models.JSONField(_("检查摘要"), default=dict, blank=True)
+    needs_verification = models.BooleanField(_("待核验"), default=False)
+    decision_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reschedule_decisions",
+        verbose_name=_("审批人"),
+        null=True,
+        blank=True,
+    )
+    decided_at = models.DateTimeField(_("审批时间"), null=True, blank=True)
+    decision_ref = models.CharField(_("学校审批编号"), max_length=200, blank=True, default="")
+    decision_note = models.TextField(_("审批说明"), blank=True, default="")
+    forced_override = models.BooleanField(_("学校强制安排"), default=False)
+
+    class Meta:
+        verbose_name = _("调课申请")
+        verbose_name_plural = _("调课申请")
+        ordering = ("-created_at", "-id")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(target_start_period__gte=1) & Q(target_end_period__gte=F("target_start_period")),
+                name="sch_resreq_period_order_chk",
+            ),
+            models.CheckConstraint(
+                condition=Q(target_end_at__gt=F("target_start_at")),
+                name="sch_resreq_range_chk",
+            ),
+            # At most one submitted request per session/applicant.  Drafts are
+            # intentionally unlimited.  The service checks first for a readable
+            # 409; this constraint closes the concurrent-creation race.
+            models.UniqueConstraint(
+                fields=["session", "applicant"],
+                condition=Q(status=RescheduleStatus.SUBMITTED),
+                name="sch_resreq_pending_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["applicant", "created_at"], name="sch_resreq_app_created_idx"),
+            models.Index(fields=["status", "created_at"], name="sch_resreq_status_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} -> {self.target_date} {self.get_status_display()}"
+
+
+class SessionChange(TimeStampedUUIDModel):
+    """Immutable before/after snapshot of one formal session move.
+
+    The unique ``(session, session_version)`` pair makes a retry of the same
+    change idempotent at the database level and preserves a complete history.
+    """
+
+    session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.PROTECT,
+        related_name="changes",
+        verbose_name=_("课次"),
+    )
+    request = models.ForeignKey(
+        RescheduleRequest,
+        on_delete=models.SET_NULL,
+        related_name="changes",
+        verbose_name=_("调课申请"),
+        null=True,
+        blank=True,
+    )
+    session_version = models.PositiveIntegerField(_("变更后课次版本"))
+    before_json = models.JSONField(_("变更前快照"))
+    after_json = models.JSONField(_("变更后快照"))
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="session_changes",
+        verbose_name=_("操作人"),
+    )
+    reason = models.TextField(_("变更原因"))
+    approval_ref = models.CharField(_("审批依据"), max_length=200, blank=True, default="")
+    forced_override = models.BooleanField(_("学校强制安排"), default=False)
+    recorded_at = models.DateTimeField(_("记录时间"), default=django_timezone.now)
+
+    class Meta:
+        verbose_name = _("课次变更")
+        verbose_name_plural = _("课次变更")
+        ordering = ("session", "session_version")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "session_version"],
+                name="sch_sesschange_version_uniq",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} v{self.session_version}"
+
+
 class ChangeLog(models.Model):
     """Append-only per-school sequence for incremental App synchronisation.
 

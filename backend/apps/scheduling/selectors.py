@@ -17,7 +17,7 @@ from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils import timezone as django_timezone
 
 from apps.academics.models import CourseOffering, TeacherProfile, TeachingAssignment, TeachingClass, Term
-from apps.scheduling.models import ClassSession, SessionTeacher
+from apps.scheduling.models import ClassSession, RescheduleRequest, SessionTeacher
 
 
 def current_school_date() -> date:
@@ -65,6 +65,38 @@ def visible_sessions_for_teacher(teacher: TeacherProfile) -> QuerySet[ClassSessi
         .annotate(is_mine=Exists(is_mine))
         .distinct()
     )
+
+
+def can_reschedule_session(teacher: TeacherProfile, session: ClassSession) -> bool:
+    """Return whether ``teacher`` may request a move for ``session``.
+
+    This is the same permission used by B30 candidate queries and B31 request
+    creation: an actual session teacher or an active assignment to the session's
+    offering.  A teacher merely sharing the teaching class may view related
+    requests but cannot create one for this session.
+    """
+    if SessionTeacher.objects.filter(session=session, teacher=teacher).exists():
+        return True
+    return active_assignments_for_teacher(teacher).filter(offering_id=session.offering_id).exists()
+
+
+def visible_reschedule_requests(teacher: TeacherProfile, *, scope: str = "mine") -> QuerySet[RescheduleRequest]:
+    """Return requests visible to a teacher for the ``mine``/``related`` scopes.
+
+    ``related`` uses the same session visibility as the schedule APIs, which
+    includes active teachers of any offering in the same teaching class.
+    """
+    queryset = RescheduleRequest.objects.select_related(
+        "session__offering__course",
+        "session__offering__term",
+        "session__classroom",
+        "target_classroom",
+        "applicant",
+        "decision_by",
+    )
+    if scope == "mine":
+        return queryset.filter(applicant=teacher)
+    return queryset.filter(session__in=visible_sessions_for_teacher(teacher))
 
 
 def visible_sessions_for_read(teacher: TeacherProfile) -> QuerySet[ClassSession]:

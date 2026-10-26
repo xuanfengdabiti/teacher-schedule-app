@@ -7,6 +7,9 @@ from django.urls import path
 from apps.scheduling.sync import SyncBootstrapView, SyncChangesView
 from apps.scheduling.views import (
     OfferingListView,
+    RescheduleRequestListCreateView,
+    RescheduleRequestSubmitView,
+    RescheduleRequestWithdrawView,
     SessionDetailView,
     SessionListView,
     TermCalendarView,
@@ -25,6 +28,17 @@ urlpatterns = [
         name="session-reschedule-options",
     ),
     path("offerings/", OfferingListView.as_view(), name="offering-list"),
+    path("reschedule-requests/", RescheduleRequestListCreateView.as_view(), name="reschedule-request-list"),
+    path(
+        "reschedule-requests/<uuid:request_id>/submit/",
+        RescheduleRequestSubmitView.as_view(),
+        name="reschedule-request-submit",
+    ),
+    path(
+        "reschedule-requests/<uuid:request_id>/withdraw/",
+        RescheduleRequestWithdrawView.as_view(),
+        name="reschedule-request-withdraw",
+    ),
     path("sync/bootstrap/", SyncBootstrapView.as_view(), name="sync-bootstrap"),
     path("sync/changes/", SyncChangesView.as_view(), name="sync-changes"),
 ]

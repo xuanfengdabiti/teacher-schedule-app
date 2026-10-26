@@ -82,6 +82,7 @@ uv run --env-file .env python manage.py runserver
 - 课表：`GET /api/v1/sessions/`、`GET /api/v1/sessions/{id}/`
 - 教学班开课：`GET /api/v1/offerings/`
 - 调课候选：`POST /api/v1/sessions/{id}/reschedule-options/`（详见下文）
+- 调课申请：`POST/GET /api/v1/reschedule-requests/`、`POST /api/v1/reschedule-requests/{id}/submit/`、`POST /api/v1/reschedule-requests/{id}/withdraw/`（详见下文）
 - 离线同步：`GET /api/v1/sync/bootstrap/`、`GET /api/v1/sync/changes/?cursor=`
 - 消息与设备：`GET /api/v1/notifications/`、`POST /api/v1/notifications/{id}/read/`、`PUT/DELETE /api/v1/devices/{installation_id}/`
 - Admin：<http://127.0.0.1:8000/admin/>
@@ -238,10 +239,12 @@ backend/
 │       ├── selectors.py # B13 可见范围、预取与当前学期查询
 │       ├── sync.py      # bootstrap 一致快照与 changes 增量接口
 │       ├── sync_serializers.py # /sync/ OpenAPI 响应 schema
-│       ├── reschedule_options.py # 只读调课候选、冲突和覆盖检查
-│       ├── serializers.py        # 课表读取、调课候选请求/响应/错误 schema
-│       ├── views.py     # 课表读取、调课候选查询接口
-│       ├── urls.py      # 课表、调课候选与同步路由
+│       ├── reschedule_options.py # 共享目标评估、只读调课候选、冲突和覆盖检查
+│       ├── changes.py   # 正式调课唯一写入口（锁、再检查、快照、日志、通知）
+│       ├── requests.py  # 调课申请状态机与服务端批准/驳回
+│       ├── serializers.py        # 课表读取、调课候选、调课申请 schema
+│       ├── views.py     # 课表、调课候选、调课申请接口
+│       ├── urls.py      # 课表、调课、同步路由
 │       ├── admin.py
 │       ├── migrations/
 │       └── tests/       # 样例学期、查询数/接口/性能测试与共享造数 helper
@@ -253,7 +256,7 @@ backend/
 
 ## 课次生成
 
-B11 只实现“按规则展开课次”，不包含导入器（B12）和正式调课（B31）。
+B11 只实现“按规则展开课次”，不包含导入器（B12）；正式调课已由 B31 的统一写入口实现，见下文。
 
 - Admin 的“学期”列表提供动作 **按规则生成课次**，调用 `apps.scheduling.services.generate_sessions_for_term`；事务内先锁 `SchoolSyncState`，再锁 `Term`。
 - 已存在的生成键（规则 + 原教学日期 + 原起始节）不会被改写，差异只计入 `mismatched` 供后续导入预览处理；新建课次时 `Term.schedule_version` 加 1。
@@ -261,7 +264,7 @@ B11 只实现“按规则展开课次”，不包含导入器（B12）和正式�
 - `ClassSession` 在 Admin 中仅可查看（不能新增、修改、删除）：完成量更正需要原因并走 B22 教学服务，正式课表变更走 B31 统一服务。
 - 校历 `cancel`/`custom`/`replace` 目标日上的基础课次保留为 `cancelled`，不删除。
 
-**写入口约定：** 今后所有修改课次、学期或校历的写入口（B12 导入、B31 正式调课、B22 完成确认、Admin 修改校历）都必须在**已有事务内**调用 `record_changes`，并与对象/版本更新同事务提交。`record_changes` 不再单独开启事务；这不是可选的审计日志，遗漏会让 App 增量同步永久跳过该变更。
+**写入口约定：** 所有修改课次、学期或校历的写入口（B12 导入、B31 正式调课、B22 完成确认、Admin 修改校历）都必须在**已有事务内**调用 `record_changes`，并与对象/版本更新同事务提交。B31 的 `apply_session_change` 是当前正式调课的唯一写入口。`record_changes` 不再单独开启事务；这不是可选的审计日志，遗漏会让 App 增量同步永久跳过该变更。
 
 ## 课表查询（B13）
 
@@ -349,6 +352,21 @@ DeviceRegistration、DeliveryAttempt，便于教务排查失败记录。设备�
 `POST /api/v1/sessions/{id}/reschedule-options/` 只读返回候选时段、候选教室、教师/学生/教室冲突、缺失数据类别和稳定排序，不创建调课申请、不修改课次。仅该课次的 `SessionTeacher` 或该 offering 的有效 `TeachingAssignment` 教师可查询；未登录返回 401，非任课教师返回 403，未关联教师档案返回 403 `TEACHER_NOT_LINKED`，教师档案停用返回 403 `TEACHER_DISABLED`，课次不存在返回 404。
 
 请求字段：`date_from`、`date_until`（半开区间；默认今天至 `date_from + 14 天`）、`allowed_block_codes`、`classroom_ids`、`allow_weekend`。源课次非 `scheduled` 返回 409 `SESSION_NOT_RESCHEDULABLE`；日期区间无效返回 400 `INVALID_DATE_RANGE`，两者都使用 `{"code", "detail", "field_errors"}`。OpenAPI 合同见 `/api/v1/schema/`。
+
+目标检查只有一个算法：B30 候选循环和 B31 的提交/批准都调用 `apps.scheduling.reschedule_options._TargetEvaluator`；公共单目标入口是 `evaluate_target(session, *, start_period, end_period, day, classroom, now)`。B30 先一次预载数据，再在内存中逐候选调用同一 evaluator，不在循环中发查询；单目标调用固定 8 条查询。`find_reschedule_options` 的 14/60 天查询数仍为常数。
+
+## 调课申请、审批与正式生效（B31）
+
+| 方法与路径 | 说明 |
+| --- | --- |
+| `POST /api/v1/reschedule-requests/` | 字段 `session_id`、`target_date`、`target_start_period`、`target_end_period`、`target_classroom_id`、`reason`、`submit`（默认 true）。201 返回申请；409 附 `evaluation`。 |
+| `GET /api/v1/reschedule-requests/?scope=mine\|related&status=` | 本人申请或本人可见课次的关联申请；created_at 倒序，DRF 分页。返回源课次简版、目标、原因、状态、`needs_verification`、`check_summary`、审批说明/时间、`forced_override`、申请人和 `can_withdraw`。 |
+| `POST /api/v1/reschedule-requests/{id}/submit/` | 仅申请人把 draft 提交；重新检查失败返回 409 且保持 draft。 |
+| `POST /api/v1/reschedule-requests/{id}/withdraw/` | 仅申请人撤回 draft/submitted；approved/rejected 返回 409 `REQUEST_NOT_WITHDRAWABLE`；不改课表。 |
+
+提交规则：`available` 直接提交；`unverified` 提交并置 `needs_verification=true`；`conflict` 返回 409 `RESCHEDULE_CONFLICT` 且不创建记录，`submit=false` 才保存草稿。硬条件失败返回 409 `TARGET_NOT_ALLOWED`（跨午休、过去、校历例外、停用/容量/设备不满足、节次数不一致等），不能被强制安排绕过。同一课次同一申请人已有 submitted 申请时返回 409 `REQUEST_ALREADY_PENDING`，草稿不受限制。
+
+审批不开放教师 API，只通过 Admin 的三个 action 调用 `apps.scheduling.requests`：普通“批准并生效”、需要说明的“驳回”、必填学校审批编号的“登记学校强制安排”。普通批准在事务内重新检查，只有 `available` 生效；`unverified`/`conflict` 不能普通生效（统一写入口返回 `DATA_UNVERIFIED`/`SCHEDULE_CONFLICT` 并附评估结果），只能强制登记，并要求 `forced_override=true` 与风险说明。所有生效都经过 `apps.scheduling.changes.apply_session_change`：批准路径锁顺序为 SchoolSyncState → Term → RescheduleRequest → ClassSession，更新同一课次 ID、递增课次与学期版本，写 SessionChange 前后快照和 session+term ChangeLog，并为每位 SessionTeacher 与申请人创建幂等站内消息。驳回和撤回都不改课表。
 
 ## 常用开发命令
 

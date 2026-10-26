@@ -1,11 +1,18 @@
-"""Read-only reschedule candidate generation and conflict checking (B30).
+"""Reschedule target evaluation and candidate generation (B30/B31).
 
-The service deliberately never writes a session.  It expands target dates and
-contiguous periods, then answers three separate questions for every candidate:
+There is one conflict algorithm for the whole project.  :class:`_TargetEvaluator`
+evaluates a single ``(day, period run, classroom)`` target from a preloaded data
+snapshot.  :func:`evaluate_target` is the public single-target entry point used
+by B31 submission/approval, while :func:`find_reschedule_options` builds one
+snapshot and calls the same evaluator for every candidate.  There is deliberately
+no second implementation in the request or change service.
+
+Candidate generation answers three separate questions for every target:
 
 * is there a known teacher/student/classroom conflict?
 * is the data needed to trust a "no conflict" answer complete for that date?
-* where should the option appear in the stable recommendation order?
+* is the target structurally allowed at all (periods, calendar, capacity,
+  equipment, active room, future time and the source session's length)?
 
 All schedule, enrolment, block and coverage rows are fetched in a fixed number
 of queries before the in-memory candidate loop.  Candidate count (14 vs 60
@@ -16,7 +23,7 @@ days) must not change the query count; see A04-A08, A21, A22 and A26 in
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -32,6 +39,7 @@ from apps.academics.models import (
     Enrollment,
     Period,
     TeacherProfile,
+    Term,
 )
 from apps.classrooms.models import Classroom, RoomBlock
 from apps.scheduling.calendar import teaching_week
@@ -45,6 +53,13 @@ from apps.scheduling.models import (
 ELIGIBILITY_AVAILABLE = "available"
 ELIGIBILITY_CONFLICT = "conflict"
 ELIGIBILITY_UNVERIFIED = "unverified"
+# Public single-target evaluations use this value for a structurally invalid
+# target.  B30 never emits it as an option: invalid candidates are omitted.
+ELIGIBILITY_NOT_ALLOWED = "not_allowed"
+
+TARGET_NOT_ALLOWED = "TARGET_NOT_ALLOWED"
+RESCHEDULE_CONFLICT = "RESCHEDULE_CONFLICT"
+DATA_UNVERIFIED = "DATA_UNVERIFIED"
 
 CONFLICT_TEACHER = "teacher"
 CONFLICT_STUDENT = "student"
@@ -71,10 +86,10 @@ _MISSING_ORDER = tuple(_MISSING_LABELS)
 
 
 class RescheduleOptionsError(Exception):
-    """Small business error owned by this endpoint.
+    """Small business error owned by the reschedule query/change services.
 
-    The project does not yet have a global error framework.  The view catches
-    this exception and renders the unified ``code/detail/field_errors`` body.
+    The view catches this exception and renders the unified
+    ``code/detail/field_errors`` body.
     """
 
     def __init__(
@@ -123,6 +138,58 @@ class ConflictDetail:
     reason: str | None = None
     student_count: int | None = None
 
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "category": self.category,
+            "session_id": str(self.session_id) if self.session_id is not None else None,
+            "course_name": self.course_name,
+            "reason": self.reason,
+            "student_count": self.student_count,
+        }
+
+
+@dataclass(frozen=True)
+class TargetEvaluation:
+    """Outcome of evaluating one exact target.
+
+    ``eligibility`` is ``available``/``conflict``/``unverified`` for a
+    structurally valid target and ``not_allowed`` when a hard condition failed.
+    ``code``/``detail`` explain the action to take; they do not replace the
+    structured conflict and missing-data lists.
+    """
+
+    eligibility: str
+    conflicts: tuple[ConflictDetail, ...]
+    missing_data: tuple[str, ...]
+    student_conflict_count: int
+    reasons: tuple[str, ...]
+    start_at: datetime | None
+    end_at: datetime | None
+    code: str | None = None
+    detail: str = ""
+    field_errors: dict[str, list[str]] = field(default_factory=dict)
+
+    @property
+    def is_available(self) -> bool:
+        return self.eligibility == ELIGIBILITY_AVAILABLE
+
+    @property
+    def is_allowed(self) -> bool:
+        return self.eligibility != ELIGIBILITY_NOT_ALLOWED
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "eligibility": self.eligibility,
+            "conflicts": [conflict.as_dict() for conflict in self.conflicts],
+            "missing_data": list(self.missing_data),
+            "student_conflict_count": self.student_conflict_count,
+            "reasons": list(self.reasons),
+            "start_at": self.start_at.isoformat() if self.start_at is not None else None,
+            "end_at": self.end_at.isoformat() if self.end_at is not None else None,
+            "code": self.code,
+            "detail": self.detail,
+        }
+
 
 @dataclass(frozen=True)
 class RescheduleOption:
@@ -137,6 +204,32 @@ class RescheduleOption:
     conflicts: tuple[ConflictDetail, ...]
     missing_data: tuple[str, ...]
     reasons: tuple[str, ...]
+
+    @classmethod
+    def from_evaluation(
+        cls,
+        evaluation: TargetEvaluation,
+        *,
+        start_period: int,
+        end_period: int,
+        classroom: Classroom,
+    ) -> RescheduleOption:
+        # Callers only construct an option after the evaluator returned a
+        # valid target, so the target times are present.
+        assert evaluation.start_at is not None and evaluation.end_at is not None
+        return cls(
+            start_at=evaluation.start_at,
+            end_at=evaluation.end_at,
+            start_period=start_period,
+            end_period=end_period,
+            classroom_id=classroom.id,
+            classroom_code=classroom.classroom_code,
+            eligibility=evaluation.eligibility,
+            student_conflict_count=evaluation.student_conflict_count,
+            conflicts=evaluation.conflicts,
+            missing_data=evaluation.missing_data,
+            reasons=evaluation.reasons,
+        )
 
 
 @dataclass(frozen=True)
@@ -203,11 +296,39 @@ class _CoverageLookup:
         return saw_coverage
 
 
+@dataclass(frozen=True)
+class _EvaluationData:
+    """All rows needed to evaluate any target in a fixed time window.
+
+    Building this snapshot is the only place that queries the database.  The
+    evaluator and the B30 candidate loop are pure in-memory operations, which is
+    what keeps one query count for 14/60 days and a constant count for one
+    ``evaluate_target`` call.
+    """
+
+    session: ClassSession
+    term: Term
+    periods: dict[int, Period]
+    exception_dates: frozenset[date]
+    classrooms: tuple[Classroom, ...]
+    target_days: tuple[date, ...]
+    occupancy_by_day: dict[date, tuple[ClassSession, ...]]
+    occupancy_by_day_room: dict[tuple[date, UUID], tuple[ClassSession, ...]]
+    teachers_by_session: dict[UUID, set[UUID]]
+    source_teachers: tuple[TeacherProfile, ...]
+    enrolments_by_offering: dict[UUID, list[_EnrollmentInterval]]
+    student_numbers: dict[UUID, str]
+    person_blocks_by_day: dict[date, tuple[PersonBlock, ...]]
+    room_blocks_by_day_room: dict[tuple[date, UUID], tuple[RoomBlock, ...]]
+    coverage: _CoverageLookup
+    required_equipment: frozenset[str]
+
+
 def _check_source_status(session: ClassSession) -> None:
     if session.status != SessionStatus.SCHEDULED:
         raise RescheduleOptionsError(
             "SESSION_NOT_RESCHEDULABLE",
-            "只有待上课的课次可以查询调课候选，已完成或已取消的课次不能调课。",
+            "只有待上课的课次可以查询或申请调课，已完成或已取消的课次不能调课。",
             status_code=409,
         )
 
@@ -472,6 +593,571 @@ def _build_option_reasons(
     return tuple(dict.fromkeys(reasons))
 
 
+def _target_times(
+    term,
+    periods: dict[int, Period],
+    source: ClassSession,
+    *,
+    day: date,
+    start_period: int,
+    end_period: int,
+) -> tuple[datetime | None, datetime | None, str | None]:
+    """Validate period geometry and return target start/end times.
+
+    This is only the structural period check; calendar, weekend, past-time,
+    room, capacity and equipment checks live in the evaluator so they use the
+    same preloaded data as every conflict check.
+    """
+    if start_period < 1 or end_period < start_period:
+        return None, None, "目标节次范围无效。"
+    span = source.end_period - source.start_period + 1
+    if end_period - start_period + 1 != span:
+        return None, None, f"目标节次数必须与源课次一致（{span} 节）。"
+
+    selected = [periods.get(number) for number in range(start_period, end_period + 1)]
+    if any(period is None for period in selected):
+        missing = [
+            number
+            for number, period in zip(range(start_period, end_period + 1), selected, strict=True)
+            if period is None
+        ]
+        return None, None, f"目标节次不存在：第 {'、'.join(str(number) for number in missing)} 节。"
+    assert all(period is not None for period in selected)
+    block_code = selected[0].block_code
+    if any(period.block_code != block_code for period in selected):
+        return None, None, "目标节次必须位于同一时段组，不能跨午休或上下午。"
+
+    start_time = selected[0].start_time
+    end_time = selected[-1].end_time
+    if end_time <= start_time:
+        return None, None, "目标节次结束时间必须晚于开始时间。"
+    tzinfo = ZoneInfo(term.timezone)
+    return (
+        datetime.combine(day, start_time, tzinfo=tzinfo),
+        datetime.combine(day, end_time, tzinfo=tzinfo),
+        None,
+    )
+
+
+def _load_evaluation_data(
+    session: ClassSession,
+    *,
+    periods: dict[int, Period],
+    exception_dates: set[date] | frozenset[date],
+    target_days: tuple[date, ...],
+    search_start: datetime,
+    search_end: datetime,
+    classrooms: tuple[Classroom, ...],
+) -> _EvaluationData:
+    """Load every row needed for all targets in this window.
+
+    Eight fixed queries (periods/exceptions are loaded by the caller): schedule
+    occupancy, session teachers, enrolments, person blocks, room blocks and
+    coverage.  Nothing in the candidate loop below issues a query.
+    """
+    offering = session.offering
+    term = offering.term
+    tzinfo = ZoneInfo(term.timezone)
+    target_day_set = set(target_days)
+    first_target_day = target_days[0]
+    last_target_day = target_days[-1]
+
+    def covered_local_days(start_at: datetime, end_at: datetime) -> tuple[date, ...]:
+        """Index an occupying record under every school-local date it covers.
+
+        Sessions do not cross midnight in the first version, but the calendar-
+        day index still expands any such record so a candidate on the next day
+        cannot silently miss it.  End is exclusive, so an end exactly at
+        midnight belongs to the previous day.
+        """
+        first = start_at.astimezone(tzinfo).date()
+        last = (end_at - timedelta(microseconds=1)).astimezone(tzinfo).date()
+        if last < first:
+            return ()
+        day = max(first, first_target_day)
+        final = min(last, last_target_day)
+        days: list[date] = []
+        while day <= final:
+            if day in target_day_set:
+                days.append(day)
+            day += timedelta(days=1)
+        return tuple(days)
+
+    # One query for every session in the same school that could overlap any
+    # candidate, regardless of which term owns it.  Time across the whole
+    # school must be considered, not only the source term's offerings.
+    occupancy_sessions = list(
+        ClassSession.objects.filter(
+            offering__term__school_id=term.school_id,
+            status__in=(SessionStatus.SCHEDULED, SessionStatus.COMPLETED),
+            start_at__lt=search_end,
+            end_at__gt=search_start,
+        )
+        .exclude(pk=session.pk)
+        .select_related("offering__course")
+        .order_by("start_at", "id")
+    )
+    session_ids = [session.id, *(occupied.id for occupied in occupancy_sessions)]
+    teacher_links = list(
+        SessionTeacher.objects.filter(session_id__in=session_ids)
+        .select_related("teacher")
+        .order_by("session_id", "teacher__teacher_no")
+    )
+    teachers_by_session: dict[UUID, set[UUID]] = defaultdict(set)
+    source_teachers: dict[UUID, TeacherProfile] = {}
+    for link in teacher_links:
+        teachers_by_session[link.session_id].add(link.teacher_id)
+        if link.session_id == session.id:
+            source_teachers[link.teacher_id] = link.teacher
+    ordered_source_teachers = tuple(sorted(source_teachers.values(), key=lambda teacher: teacher.teacher_no))
+
+    # Load all relevant enrolment intervals in one query.  Student numbers are
+    # joined here because coverage keys use them, but they are never returned.
+    offering_ids = {offering.id, *(occupied.offering_id for occupied in occupancy_sessions)}
+    enrollment_rows = list(
+        Enrollment.objects.filter(
+            offering_id__in=offering_ids,
+            effective_from__lte=target_days[-1],
+        )
+        .filter(Q(effective_until__isnull=True) | Q(effective_until__gt=target_days[0]))
+        .values_list(
+            "offering_id",
+            "student_id",
+            "student__student_no",
+            "effective_from",
+            "effective_until",
+        )
+        .order_by("offering_id", "student_id", "effective_from")
+    )
+    enrolments_by_offering: dict[UUID, list[_EnrollmentInterval]] = defaultdict(list)
+    student_numbers: dict[UUID, str] = {}
+    for offering_id, student_id, student_no, effective_from, effective_until in enrollment_rows:
+        enrolments_by_offering[offering_id].append(
+            _EnrollmentInterval(
+                student_id=student_id,
+                student_no=student_no,
+                effective_from=effective_from,
+                effective_until=effective_until,
+            )
+        )
+        student_numbers[student_id] = student_no
+
+    occupancy_by_day: dict[date, list[ClassSession]] = defaultdict(list)
+    occupancy_by_day_room: dict[tuple[date, UUID], list[ClassSession]] = defaultdict(list)
+    for occupied in occupancy_sessions:
+        for day in covered_local_days(occupied.start_at, occupied.end_at):
+            occupancy_by_day[day].append(occupied)
+            occupancy_by_day_room[(day, occupied.classroom_id)].append(occupied)
+
+    source_teacher_ids = {teacher.id for teacher in ordered_source_teachers}
+    # Person-block filtering is deliberately name-independent.  For the source
+    # offering we need its own active students, not students from other
+    # offerings that happen to overlap the target window.
+    source_student_ids: set[UUID] = set()
+    for interval in enrolments_by_offering.get(offering.id, ()):
+        if any(interval.active_on(day) for day in target_days):
+            source_student_ids.add(interval.student_id)
+
+    person_blocks = list(
+        PersonBlock.objects.filter(
+            Q(teacher_id__in=source_teacher_ids) | Q(student_id__in=source_student_ids),
+            start_at__lt=search_end,
+            end_at__gt=search_start,
+        ).order_by("start_at", "id")
+    )
+    person_blocks_by_day: dict[date, list[PersonBlock]] = defaultdict(list)
+    for block in person_blocks:
+        for day in covered_local_days(block.start_at, block.end_at):
+            person_blocks_by_day[day].append(block)
+
+    room_blocks = list(
+        RoomBlock.objects.filter(
+            classroom_id__in=[classroom.id for classroom in classrooms],
+            start_at__lt=search_end,
+            end_at__gt=search_start,
+        ).order_by("start_at", "id")
+    )
+    room_blocks_by_day_room: dict[tuple[date, UUID], list[RoomBlock]] = defaultdict(list)
+    for block in room_blocks:
+        for day in covered_local_days(block.start_at, block.end_at):
+            room_blocks_by_day_room[(day, block.classroom_id)].append(block)
+
+    coverage_rows = list(
+        DataCoverage.objects.filter(
+            term=term,
+            from_date__lt=target_days[-1] + timedelta(days=1),
+            until_date__gt=target_days[0],
+        ).values_list("kind", "scope_key", "from_date", "until_date", "completeness")
+    )
+    coverage = _CoverageLookup(coverage_rows)
+
+    return _EvaluationData(
+        session=session,
+        term=term,
+        periods=periods,
+        exception_dates=frozenset(exception_dates),
+        classrooms=classrooms,
+        target_days=target_days,
+        occupancy_by_day={day: tuple(rows) for day, rows in occupancy_by_day.items()},
+        occupancy_by_day_room={key: tuple(rows) for key, rows in occupancy_by_day_room.items()},
+        teachers_by_session=dict(teachers_by_session),
+        source_teachers=ordered_source_teachers,
+        enrolments_by_offering=dict(enrolments_by_offering),
+        student_numbers=student_numbers,
+        person_blocks_by_day={day: tuple(rows) for day, rows in person_blocks_by_day.items()},
+        room_blocks_by_day_room={key: tuple(rows) for key, rows in room_blocks_by_day_room.items()},
+        coverage=coverage,
+        required_equipment=frozenset(offering.required_equipment or ()),
+    )
+
+
+class _TargetEvaluator:
+    """The single target-evaluation algorithm used by B30 and B31."""
+
+    def __init__(self, data: _EvaluationData) -> None:
+        self.data = data
+        self.session = data.session
+        self.offering = self.session.offering
+        self.term = data.term
+        self.tzinfo = ZoneInfo(self.term.timezone)
+        self.source_teacher_ids = {teacher.id for teacher in data.source_teachers}
+        self._active_students_cache: dict[tuple[UUID, date], set[UUID]] = {}
+        self.source_students_by_day = {day: self._active_students(self.offering.id, day) for day in data.target_days}
+        self._common_cache: dict[tuple[date, int, int], tuple] = {}
+
+    def _active_students(self, offering_id: UUID, day: date) -> set[UUID]:
+        key = (offering_id, day)
+        if key not in self._active_students_cache:
+            self._active_students_cache[key] = {
+                row.student_id for row in self.data.enrolments_by_offering.get(offering_id, ()) if row.active_on(day)
+            }
+        return self._active_students_cache[key]
+
+    def _not_allowed(
+        self,
+        detail: str,
+        *,
+        start_at: datetime | None = None,
+        end_at: datetime | None = None,
+        field_name: str | None = None,
+    ) -> TargetEvaluation:
+        field_errors = {field_name: [detail]} if field_name else {}
+        return TargetEvaluation(
+            eligibility=ELIGIBILITY_NOT_ALLOWED,
+            conflicts=(),
+            missing_data=(),
+            student_conflict_count=0,
+            reasons=(detail,),
+            start_at=start_at,
+            end_at=end_at,
+            code=TARGET_NOT_ALLOWED,
+            detail=detail,
+            field_errors=field_errors,
+        )
+
+    def evaluate(
+        self,
+        *,
+        start_period: int,
+        end_period: int,
+        day: date,
+        classroom: Classroom,
+        now: datetime,
+        allow_weekend: bool = False,
+    ) -> TargetEvaluation:
+        start_at, end_at, geometry_error = _target_times(
+            self.term,
+            self.data.periods,
+            self.session,
+            day=day,
+            start_period=start_period,
+            end_period=end_period,
+        )
+        if geometry_error is not None:
+            return self._not_allowed(geometry_error, start_at=start_at, end_at=end_at)
+
+        if teaching_week(self.term, day) is None:
+            return self._not_allowed(
+                "目标日期不在学期教学周内。", start_at=start_at, end_at=end_at, field_name="target_date"
+            )
+        if not allow_weekend and day.weekday() >= 5:
+            return self._not_allowed(
+                "目标日期是周末，当前不允许周末调课。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_date",
+            )
+        if day in self.data.exception_dates:
+            return self._not_allowed(
+                "目标日期存在校历例外，不能作为调课目标。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_date",
+            )
+        if start_at <= now:
+            return self._not_allowed(
+                "目标开始时间必须晚于当前时间。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_date",
+            )
+        if classroom.school_id != self.term.school_id:
+            return self._not_allowed(
+                "目标教室必须与学期属于同一学校。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_classroom_id",
+            )
+        if not classroom.is_active:
+            return self._not_allowed(
+                "目标教室已停用，不能作为调课目标。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_classroom_id",
+            )
+
+        source_local_start = self.session.start_at.astimezone(self.tzinfo)
+        source_day = source_local_start.date()
+        if (
+            day == source_day
+            and start_period == self.session.start_period
+            and end_period == self.session.end_period
+            and classroom.id == self.session.classroom_id
+        ):
+            return self._not_allowed(
+                "目标与当前课次完全相同，无需调课。",
+                start_at=start_at,
+                end_at=end_at,
+            )
+
+        source_students = self.source_students_by_day.get(day, set())
+        if classroom.capacity < len(source_students):
+            return self._not_allowed(
+                f"教室容量不足：目标日有效选课 {len(source_students)} 人，教室容量 {classroom.capacity} 人。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_classroom_id",
+            )
+        missing_equipment = self.data.required_equipment - set(classroom.equipment or ())
+        if missing_equipment:
+            missing_text = "、".join(sorted(missing_equipment))
+            return self._not_allowed(
+                f"教室缺少必需设备：{missing_text}。",
+                start_at=start_at,
+                end_at=end_at,
+                field_name="target_classroom_id",
+            )
+
+        common = self._common_for(day, start_period, end_period)
+        common_conflicts, common_conflict_reasons, common_missing_data, student_conflict_count = common
+
+        classroom_conflicts: list[ConflictDetail] = []
+        for occupied in self.data.occupancy_by_day_room.get((day, classroom.id), ()):
+            if _overlaps(start_at, end_at, occupied.start_at, occupied.end_at):
+                classroom_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_CLASSROOM,
+                        session_id=occupied.id,
+                        course_name=occupied.offering.course.name,
+                    )
+                )
+
+        for block in self.data.room_blocks_by_day_room.get((day, classroom.id), ()):
+            if _overlaps(start_at, end_at, block.start_at, block.end_at):
+                classroom_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_CLASSROOM,
+                        reason=block.reason,
+                    )
+                )
+
+        conflicts = common_conflicts + tuple(classroom_conflicts)
+        room_missing_data = _missing_data_room_for(
+            self.data.coverage,
+            day=day,
+            classroom_code=classroom.classroom_code,
+        )
+        missing_data = _merge_missing_data(common_missing_data, room_missing_data)
+        if conflicts:
+            eligibility = ELIGIBILITY_CONFLICT
+        elif missing_data:
+            eligibility = ELIGIBILITY_UNVERIFIED
+        else:
+            eligibility = ELIGIBILITY_AVAILABLE
+
+        conflict_reasons = common_conflict_reasons + tuple(_conflict_reasons(tuple(classroom_conflicts)))
+        reasons = _build_option_reasons(
+            conflict_reasons=conflict_reasons,
+            missing_data=missing_data,
+            uses_source_classroom=classroom.id == self.session.classroom_id,
+        )
+        if eligibility == ELIGIBILITY_CONFLICT:
+            code = RESCHEDULE_CONFLICT
+            detail = "目标时段存在已知冲突，不能普通提交或批准。"
+        elif eligibility == ELIGIBILITY_UNVERIFIED:
+            code = DATA_UNVERIFIED
+            detail = "目标数据不完整，不能普通批准；请先核验或登记学校强制安排。"
+        else:
+            code = None
+            detail = "教师、选课学生及教室均无已知冲突。"
+        return TargetEvaluation(
+            eligibility=eligibility,
+            conflicts=conflicts,
+            missing_data=missing_data,
+            student_conflict_count=student_conflict_count,
+            reasons=reasons,
+            start_at=start_at,
+            end_at=end_at,
+            code=code,
+            detail=detail,
+        )
+
+    def _common_for(self, day: date, start_period: int, end_period: int) -> tuple:
+        """Teacher/student conflicts and non-room coverage for one time slot.
+
+        Cached because B30 evaluates every classroom of a slot; the cache is
+        keyed by the exact slot, not by candidate id, so the result is identical
+        to evaluating one target in isolation.
+        """
+        key = (day, start_period, end_period)
+        if key in self._common_cache:
+            return self._common_cache[key]
+
+        start_at, end_at, geometry_error = _target_times(
+            self.term,
+            self.data.periods,
+            self.session,
+            day=day,
+            start_period=start_period,
+            end_period=end_period,
+        )
+        assert geometry_error is None and start_at is not None and end_at is not None
+        source_students = self.source_students_by_day.get(day, set())
+        source_students_for_coverage = tuple(
+            sorted(
+                ((student_id, self.data.student_numbers[student_id]) for student_id in source_students),
+                key=lambda item: item[1],
+            )
+        )
+
+        teacher_conflicts: list[ConflictDetail] = []
+        student_conflicts: list[ConflictDetail] = []
+        conflicting_student_ids: set[UUID] = set()
+
+        for occupied in self.data.occupancy_by_day.get(day, ()):
+            if not _overlaps(start_at, end_at, occupied.start_at, occupied.end_at):
+                continue
+            if self.data.teachers_by_session.get(occupied.id, set()) & self.source_teacher_ids:
+                teacher_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_TEACHER,
+                        session_id=occupied.id,
+                        course_name=occupied.offering.course.name,
+                    )
+                )
+
+            overlap_students = self._active_students(occupied.offering_id, day) & source_students
+            if overlap_students:
+                conflicting_student_ids.update(overlap_students)
+                student_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_STUDENT,
+                        session_id=occupied.id,
+                        course_name=occupied.offering.course.name,
+                        student_count=len(overlap_students),
+                    )
+                )
+
+        for block in self.data.person_blocks_by_day.get(day, ()):
+            if not _overlaps(start_at, end_at, block.start_at, block.end_at):
+                continue
+            if block.teacher_id in self.source_teacher_ids:
+                teacher_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_TEACHER,
+                        reason=block.reason,
+                    )
+                )
+            if block.student_id in source_students:
+                conflicting_student_ids.add(block.student_id)
+                student_conflicts.append(
+                    ConflictDetail(
+                        category=CONFLICT_STUDENT,
+                        reason=block.reason,
+                        student_count=1,
+                    )
+                )
+
+        common_conflicts = tuple(teacher_conflicts + student_conflicts)
+        common_missing_data = _missing_data_common_for(
+            self.data.coverage,
+            day=day,
+            offering_code=self.offering.offering_code,
+            teachers=self.data.source_teachers,
+            students=source_students_for_coverage,
+        )
+        result = (
+            common_conflicts,
+            tuple(_conflict_reasons(common_conflicts)),
+            common_missing_data,
+            len(conflicting_student_ids),
+        )
+        self._common_cache[key] = result
+        return result
+
+
+def evaluate_target(
+    session: ClassSession,
+    *,
+    start_period: int,
+    end_period: int,
+    day: date,
+    classroom: Classroom,
+    now: datetime,
+    allow_weekend: bool = False,
+) -> TargetEvaluation:
+    """Evaluate one exact target with a constant number of queries.
+
+    B31 uses this for submission and both approval paths; B30 invokes the same
+    :class:`_TargetEvaluator` over one preloaded snapshot so candidate loops do
+    not issue per-candidate queries.  The source session is excluded from all
+    occupancy checks, exactly as in B30.
+    """
+    if django_timezone.is_naive(now):
+        raise ValueError("now must be a timezone-aware datetime")
+
+    _check_source_status(session)
+    offering = session.offering
+    term = offering.term
+    tzinfo = ZoneInfo(term.timezone)
+    periods = {period.period_number: period for period in Period.objects.filter(term=term)}
+    exception_dates = set(CalendarException.objects.filter(term=term).values_list("date", flat=True))
+
+    # A whole local day is loaded even for an invalid target; this keeps the
+    # public call's query count constant instead of branching into different
+    # query sets based on validation errors.
+    search_start = datetime.combine(day, time.min, tzinfo=tzinfo)
+    search_end = search_start + timedelta(days=1)
+    data = _load_evaluation_data(
+        session,
+        periods=periods,
+        exception_dates=exception_dates,
+        target_days=(day,),
+        search_start=search_start,
+        search_end=search_end,
+        classrooms=(classroom,),
+    )
+    evaluator = _TargetEvaluator(data)
+    return evaluator.evaluate(
+        start_period=start_period,
+        end_period=end_period,
+        day=day,
+        classroom=classroom,
+        now=now,
+        allow_weekend=allow_weekend,
+    )
+
+
 def _empty_result(session: ClassSession, term, now: datetime) -> OptionResult:
     return OptionResult(
         session_id=session.id,
@@ -523,290 +1209,46 @@ def find_reschedule_options(session: ClassSession, query: OptionQuery, *, now: d
     classroom_qs = Classroom.objects.filter(school_id=term.school_id, is_active=True)
     if query.classroom_ids is not None:
         classroom_qs = classroom_qs.filter(pk__in=query.classroom_ids)
-    classrooms = list(classroom_qs.order_by("classroom_code", "id"))
+    classrooms = tuple(classroom_qs.order_by("classroom_code", "id"))
     if not classrooms:
         return _empty_result(session, term, now)
 
     target_days = tuple(sorted({slot.day for slot in slots}))
-    target_day_set = set(target_days)
-    first_target_day = target_days[0]
-    last_target_day = target_days[-1]
     search_start = min(slot.start_at for slot in slots)
     search_end = max(slot.end_at for slot in slots)
-
-    def covered_local_days(start_at: datetime, end_at: datetime) -> tuple[date, ...]:
-        """Index an occupying record under every school-local date it covers.
-
-        Sessions do not cross midnight in the first version, but the calendar-
-        day index still expands any such record so a candidate on the next day
-        cannot silently miss it.  End is exclusive, so an end exactly at
-        midnight belongs to the previous day.
-        """
-        first = start_at.astimezone(tzinfo).date()
-        last = (end_at - timedelta(microseconds=1)).astimezone(tzinfo).date()
-        if last < first:
-            return ()
-        day = max(first, first_target_day)
-        final = min(last, last_target_day)
-        days: list[date] = []
-        while day <= final:
-            if day in target_day_set:
-                days.append(day)
-            day += timedelta(days=1)
-        return tuple(days)
-
-    # One query for every session in the same school that could overlap any
-    # candidate, regardless of which term owns it.  Time across the whole
-    # school must be considered, not only the source term's offerings.
-    occupancy_sessions = list(
-        ClassSession.objects.filter(
-            offering__term__school_id=term.school_id,
-            status__in=(SessionStatus.SCHEDULED, SessionStatus.COMPLETED),
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        )
-        .exclude(pk=session.pk)
-        .select_related("offering__course")
-        .order_by("start_at", "id")
+    data = _load_evaluation_data(
+        session,
+        periods=periods,
+        exception_dates=exception_dates,
+        target_days=target_days,
+        search_start=search_start,
+        search_end=search_end,
+        classrooms=classrooms,
     )
-    session_ids = [session.id, *(occupancy.id for occupancy in occupancy_sessions)]
-    teacher_links = list(
-        SessionTeacher.objects.filter(session_id__in=session_ids)
-        .select_related("teacher")
-        .order_by("session_id", "teacher__teacher_no")
-    )
-    teachers_by_session: dict[UUID, set[UUID]] = defaultdict(set)
-    source_teachers: dict[UUID, TeacherProfile] = {}
-    for link in teacher_links:
-        teachers_by_session[link.session_id].add(link.teacher_id)
-        if link.session_id == session.id:
-            source_teachers[link.teacher_id] = link.teacher
-    source_teacher_ids = set(source_teachers)
-    ordered_source_teachers = tuple(sorted(source_teachers.values(), key=lambda teacher: teacher.teacher_no))
+    evaluator = _TargetEvaluator(data)
 
-    # Load all relevant enrolment intervals in one query.  Student numbers are
-    # joined here because coverage keys use them, but they are never returned.
-    offering_ids = {offering.id, *(over.offering_id for over in occupancy_sessions)}
-    enrollment_rows = list(
-        Enrollment.objects.filter(
-            offering_id__in=offering_ids,
-            effective_from__lte=target_days[-1],
-        )
-        .filter(Q(effective_until__isnull=True) | Q(effective_until__gt=target_days[0]))
-        .values_list(
-            "offering_id",
-            "student_id",
-            "student__student_no",
-            "effective_from",
-            "effective_until",
-        )
-        .order_by("offering_id", "student_id", "effective_from")
-    )
-    enrolments_by_offering: dict[UUID, list[_EnrollmentInterval]] = defaultdict(list)
-    student_numbers: dict[UUID, str] = {}
-    for offering_id, student_id, student_no, effective_from, effective_until in enrollment_rows:
-        enrolments_by_offering[offering_id].append(
-            _EnrollmentInterval(
-                student_id=student_id,
-                student_no=student_no,
-                effective_from=effective_from,
-                effective_until=effective_until,
-            )
-        )
-        student_numbers[student_id] = student_no
-
-    active_students_cache: dict[tuple[UUID, date], set[UUID]] = {}
-
-    def active_students(offering_id: UUID, day: date) -> set[UUID]:
-        key = (offering_id, day)
-        if key not in active_students_cache:
-            active_students_cache[key] = {
-                row.student_id for row in enrolments_by_offering.get(offering_id, ()) if row.active_on(day)
-            }
-        return active_students_cache[key]
-
-    source_students_by_day = {day: active_students(offering.id, day) for day in target_days}
-    source_student_union = set().union(*source_students_by_day.values())
-
-    occupancy_by_day: dict[date, list[ClassSession]] = defaultdict(list)
-    occupancy_by_day_room: dict[tuple[date, UUID], list[ClassSession]] = defaultdict(list)
-    for occupied in occupancy_sessions:
-        for day in covered_local_days(occupied.start_at, occupied.end_at):
-            occupancy_by_day[day].append(occupied)
-            occupancy_by_day_room[(day, occupied.classroom_id)].append(occupied)
-
-    person_blocks = list(
-        PersonBlock.objects.filter(
-            Q(teacher_id__in=source_teacher_ids) | Q(student_id__in=source_student_union),
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        ).order_by("start_at", "id")
-    )
-    person_blocks_by_day: dict[date, list[PersonBlock]] = defaultdict(list)
-    for block in person_blocks:
-        for day in covered_local_days(block.start_at, block.end_at):
-            person_blocks_by_day[day].append(block)
-
-    room_blocks = list(
-        RoomBlock.objects.filter(
-            classroom_id__in=[classroom.id for classroom in classrooms],
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        ).order_by("start_at", "id")
-    )
-    room_blocks_by_day_room: dict[tuple[date, UUID], list[RoomBlock]] = defaultdict(list)
-    for block in room_blocks:
-        for day in covered_local_days(block.start_at, block.end_at):
-            room_blocks_by_day_room[(day, block.classroom_id)].append(block)
-    coverage_rows = list(
-        DataCoverage.objects.filter(
-            term=term,
-            from_date__lt=target_days[-1] + timedelta(days=1),
-            until_date__gt=target_days[0],
-        ).values_list("kind", "scope_key", "from_date", "until_date", "completeness")
-    )
-    coverage = _CoverageLookup(coverage_rows)
-
-    required_equipment = set(offering.required_equipment or ())
     options: list[RescheduleOption] = []
-
     for slot in slots:
-        source_students = source_students_by_day[slot.day]
-        source_students_for_coverage = tuple(
-            sorted(
-                ((student_id, student_numbers[student_id]) for student_id in source_students),
-                key=lambda item: item[1],
-            )
-        )
-        source_student_count = len(source_students)
-
-        # Teacher and student conflicts, plus six of the eight coverage
-        # categories, do not depend on the candidate classroom.  Compute them
-        # once for this time slot; only classroom occupancy and the two
-        # classroom-specific coverage kinds vary per room.
-        teacher_conflicts: list[ConflictDetail] = []
-        student_conflicts: list[ConflictDetail] = []
-        conflicting_student_ids: set[UUID] = set()
-
-        for occupied in occupancy_by_day.get(slot.day, ()):
-            if not _overlaps(slot.start_at, slot.end_at, occupied.start_at, occupied.end_at):
-                continue
-            if teachers_by_session[occupied.id] & source_teacher_ids:
-                teacher_conflicts.append(
-                    ConflictDetail(
-                        category=CONFLICT_TEACHER,
-                        session_id=occupied.id,
-                        course_name=occupied.offering.course.name,
-                    )
-                )
-
-            overlap_students = active_students(occupied.offering_id, slot.day) & source_students
-            if overlap_students:
-                conflicting_student_ids.update(overlap_students)
-                student_conflicts.append(
-                    ConflictDetail(
-                        category=CONFLICT_STUDENT,
-                        session_id=occupied.id,
-                        course_name=occupied.offering.course.name,
-                        student_count=len(overlap_students),
-                    )
-                )
-
-        for block in person_blocks_by_day.get(slot.day, ()):
-            if not _overlaps(slot.start_at, slot.end_at, block.start_at, block.end_at):
-                continue
-            if block.teacher_id in source_teacher_ids:
-                teacher_conflicts.append(
-                    ConflictDetail(
-                        category=CONFLICT_TEACHER,
-                        reason=block.reason,
-                    )
-                )
-            if block.student_id in source_students:
-                conflicting_student_ids.add(block.student_id)
-                student_conflicts.append(
-                    ConflictDetail(
-                        category=CONFLICT_STUDENT,
-                        reason=block.reason,
-                        student_count=1,
-                    )
-                )
-
-        common_conflicts = tuple(teacher_conflicts + student_conflicts)
-        common_conflict_reasons = tuple(_conflict_reasons(common_conflicts))
-        common_missing_data = _missing_data_common_for(
-            coverage,
-            day=slot.day,
-            offering_code=offering.offering_code,
-            teachers=ordered_source_teachers,
-            students=source_students_for_coverage,
-        )
-
         for classroom in classrooms:
-            if classroom.capacity < source_student_count:
-                continue
-            if not required_equipment.issubset(set(classroom.equipment or ())):
-                continue
-            if (
-                slot.day == source_date
-                and slot.start_period == session.start_period
-                and slot.end_period == session.end_period
-                and classroom.id == session.classroom_id
-            ):
-                continue
-
-            classroom_conflicts: list[ConflictDetail] = []
-            for occupied in occupancy_by_day_room.get((slot.day, classroom.id), ()):
-                if _overlaps(slot.start_at, slot.end_at, occupied.start_at, occupied.end_at):
-                    classroom_conflicts.append(
-                        ConflictDetail(
-                            category=CONFLICT_CLASSROOM,
-                            session_id=occupied.id,
-                            course_name=occupied.offering.course.name,
-                        )
-                    )
-
-            for block in room_blocks_by_day_room.get((slot.day, classroom.id), ()):
-                if _overlaps(slot.start_at, slot.end_at, block.start_at, block.end_at):
-                    classroom_conflicts.append(
-                        ConflictDetail(
-                            category=CONFLICT_CLASSROOM,
-                            reason=block.reason,
-                        )
-                    )
-
-            conflicts = common_conflicts + tuple(classroom_conflicts)
-            room_missing_data = _missing_data_room_for(
-                coverage,
+            evaluation = evaluator.evaluate(
+                start_period=slot.start_period,
+                end_period=slot.end_period,
                 day=slot.day,
-                classroom_code=classroom.classroom_code,
+                classroom=classroom,
+                now=now,
+                allow_weekend=query.allow_weekend,
             )
-            missing_data = _merge_missing_data(common_missing_data, room_missing_data)
-            if conflicts:
-                eligibility = ELIGIBILITY_CONFLICT
-            elif missing_data:
-                eligibility = ELIGIBILITY_UNVERIFIED
-            else:
-                eligibility = ELIGIBILITY_AVAILABLE
-
-            conflict_reasons = common_conflict_reasons + tuple(_conflict_reasons(tuple(classroom_conflicts)))
+            if evaluation.eligibility == ELIGIBILITY_NOT_ALLOWED:
+                # Hard conditions (capacity, equipment, inactive room, source
+                # slot itself) are not candidates.  B30 used to filter these in
+                # the loop; the shared evaluator now owns that decision.
+                continue
             options.append(
-                RescheduleOption(
-                    start_at=slot.start_at,
-                    end_at=slot.end_at,
+                RescheduleOption.from_evaluation(
+                    evaluation,
                     start_period=slot.start_period,
                     end_period=slot.end_period,
-                    classroom_id=classroom.id,
-                    classroom_code=classroom.classroom_code,
-                    eligibility=eligibility,
-                    student_conflict_count=len(conflicting_student_ids),
-                    conflicts=conflicts,
-                    missing_data=missing_data,
-                    reasons=_build_option_reasons(
-                        conflict_reasons=conflict_reasons,
-                        missing_data=missing_data,
-                        uses_source_classroom=classroom.id == session.classroom_id,
-                    ),
+                    classroom=classroom,
                 )
             )
 
