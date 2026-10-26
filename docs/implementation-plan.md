@@ -259,9 +259,9 @@ REST 前缀 `/api/v1/`，JSON 使用 snake_case，主键用 UUID 字符串；时
 | 交接 | `GET handoffs/prefill/?source_session_id=`、`POST handoffs/`、`GET handoffs/?box=inbox\|sent&status=`、`GET handoffs/{id}/`、`POST handoffs/{id}/read/`、`POST handoffs/{id}/acknowledge/`、`POST handoffs/{id}/withdraw/` | 每条交接一个接收人；发送时固定内容快照与备注发布版本；read 不等于确认；重复确认/撤回幂等；错误码见下文 |
 | 计划 | `GET offerings/{id}/plan/`、`PUT offerings/{id}/plan/` | GET 返回 plan/progress/can_edit；PUT 仅 lead_teacher，body 为 items/base_version，每次保存追加 PlanRevision |
 | 授课确认 | `GET sessions/{id}/completion/`、`PUT sessions/{id}/completion/` | GET 当前完成信息、可分配专题和历史；PUT body 为 action/actual_hours/allocations/reason/base_version |
-| 教室 | `GET classrooms/`、`GET classrooms/{id}/usage/?date=` | 使用记录及前后课 |
-| 联系 | `GET teachers/{id}/contact/` | 仅返回当前允许显示的字段 |
-| 协查 | `POST inquiries/`、`GET inquiries/`、`POST inquiries/{id}/replies/`、`POST inquiries/{id}/close/` | 请求/回复/结案 |
+| 教室 | `GET classrooms/?q=&campus=&building=`、`GET classrooms/{id}/usage/?date=` | 本校教室标准分页；usage 返回 session/cancelled_session/moved_out/room_block 和 data_completeness，固定说明排课不等于到场 |
+| 联系 | `GET teachers/{id}/contact/` | 仅返回当前允许显示的电话/微信；用 `phone_status`/`wechat_status` 区分 visible/not_provided/hidden |
+| 协查 | `GET inquiries/candidates/?classroom_id=&from_at=&to_at=`、`POST/GET inquiries/`、`GET inquiries/{id}/`、`POST inquiries/{id}/read/`、`POST inquiries/{id}/replies/`、`POST inquiries/{id}/close/` | 候选只读且跨度≤7天；只发给勾选的相关教师；首次查看不改变状态；回复/结案状态机 |
 | 消息 | `GET notifications/?cursor=&limit=`、`POST notifications/{id}/read/`、`PUT devices/{installation_id}/`、`DELETE devices/{installation_id}/` | 不透明游标分页（默认 20、最多 50），返回 `results/next_cursor/unread_count`；已读幂等；设备绑定可跨账号转移，DELETE 只要求登录且幂等 204 |
 | 同步 | `GET sync/bootstrap/`、`GET sync/changes/?cursor=` | `cursor` 为字符串；bootstrap 为当前学期一致快照；changes 最多 500 条日志一页并支持 `reset_required` |
 | 导入 | Admin 上传/预览/提交；将来可加 `imports/` API | 先复用管理后台，不先做移动导入工作台 |
@@ -333,6 +333,18 @@ B31 调课申请合同：
 - `POST reschedule-requests/{id}/submit/` 仅申请人把 draft 提交，重新检查失败返回 409 且保持 draft。`POST .../withdraw/` 仅申请人把 draft/submitted 改为 withdrawn；其他状态 409 `REQUEST_NOT_WITHDRAWABLE`，不改课表。
 - 驳回不改课表并通知申请人。普通批准在事务锁内再次检查，只有 `available` 可生效；`unverified`/`conflict` 必须使用“登记学校强制安排”，必填学校审批编号/依据并记录 `forced_override=true` 与风险说明。硬条件不能被强制安排绕过。
 - 生效更新同一课次 ID 的日期、节次、教室和 version，递增学期 `schedule_version`，写 SessionChange 前后快照、session+term ChangeLog，并在同一事务内通知该课次每位 SessionTeacher（`schedule_changed`）和申请人（`reschedule_result`）。原日期查询不再返回该课次，sync/changes 返回新状态。
+
+B32/B33 后端合同（Flutter 页面和真实推送不在本切片）：
+
+- `GET classrooms/` 只返回本校教室，按 `campus`、`building`、`room_no` 排序，`q` 模糊匹配 `classroom_code`/`building`/`room_no`，`campus`、`building` 精确筛选；标准分页。
+- `GET classrooms/{id}/usage/?date=YYYY-MM-DD` 的 `date` 必填且为学校本地日期。`entries[].kind` 为 `session`（scheduled/completed）、`cancelled_session`、`moved_out` 或 `room_block`，统一按 `start_at` 排序。`session` 含 `session_id/start_at/end_at/start_period/end_period/course_name/teaching_class/status/is_moved/teachers[]`，每位教师含 `has_visible_contact`（与联系方式接口调用同一可见性函数）。`cancelled_session` 额外含 `status_reason`。`moved_out` 来自 `SessionChange.before_json` 中原本位于该教室该日的快照：`start_at/end_at/start_period/end_period` 是原时段，`current_start_at/current_end_at/current_start_period/current_end_period/current_classroom_id/current_classroom_code` 是当前结果；当前已在该教室该日的课次不会再以 `moved_out` 重复出现。`room_block` 含 `room_block_id/start_at/end_at/reason/block_code`。顶层固定 `notice="排定课程记录，不代表实际到场或物品去向。"`。
+- `data_completeness` 只取 `complete`/`incomplete`，由 B30 同一套 `DataCoverage` 判定：`classroom_schedule` 与 `room_blocks` 两类均对 `school` 或 `classroom:{code}` 声明覆盖该日且 complete 才为 complete；任一缺失或 partial 为 incomplete。不能以“表里没有记录”代替 complete。
+- `GET teachers/{id}/contact/` 返回 `teacher{id,name,department}`、`phone`/`wechat` 与 `phone_status`/`wechat_status`。状态为 `visible`/`not_provided`/`hidden`，隐藏或未提供时值为 null。本人看自己全部可见；`private` 不可见；`course_teachers` 要求查看人与目标教师同为一个 offering 的当前有效任课教师（`effective_until` 为空或晚于学校今天），或同为某个课次的 `SessionTeacher`；`school_teachers` 对本校任一 active 教师可见。停用教师档案或停用关联账号一律不可见；其他学校教师 404。教室 usage 的 `has_visible_contact` 复用同一函数，批量页面查询数不随教师数增长。
+- `GET inquiries/candidates/?classroom_id=&from_at=&to_at=` 只读，`[from_at,to_at)` 与教室课次重叠，取 scheduled/completed 课次的 `SessionTeacher`，排除本人。`to_at>from_at` 且跨度不超过 7 天，否则 400 `INVALID_DATE_RANGE`。响应含 `classroom`、`from_at`、`to_at` 和 `candidates[]`；每项含 `teacher{id,name,department}`、`related_session_ids`、`course_names`、`sessions[]`（课程名、起止时间、节次）。
+- `POST inquiries/` body 为 `classroom_id`、`from_at`、`to_at`、`item_description`（≤1000）、`recipient_ids`（1–20）。每个接收人必须仍在候选列表中，否则整体 400 `INVALID_RECIPIENT` 且不创建任何行；不自动群发。一个事务创建 `Inquiry(open)`、每位接收人的 `related_session_ids` 快照和 `inquiry_received` 消息，事件键 `inquiry:{id}:received`。之后正式调课不修改收件人或快照。
+- `GET inquiries/?box=sent|received&status=` 标准分页；`box` 默认 received。`GET inquiries/{id}/` 仅发起人/接收人可见，其他教师 404；返回接收人（`first_viewed_at`、`has_replied`）、全部追加回复、`notice`。GET 不写首次查看时间。
+- `POST inquiries/{id}/read/` 仅接收人，首次写入 `first_viewed_at`，不改变 `status`。`POST .../replies/` 仅接收人，body 为 `result=not_seen|in_custody|other` 和可空 `body`（≤1000，other 必填）；可多次追加，首条令 open→replied，每条给发起人发 `inquiry_replied`，事件键 `inquiry_reply:{reply_id}`；closed 后返回 409 `INQUIRY_CLOSED`。`POST .../close/` 仅发起人，open/replied→closed，写 `closed_at`、可空 `close_note`，重复结案幂等，本期不重新开启。回复和结案均对 inquiry 行 `select_for_update`，并发时只有一种顺序生效。
+- 错误体统一 `{code,detail,field_errors}`。400：`VALIDATION_ERROR`、`INVALID_DATE_RANGE`、`INVALID_RECIPIENT`；403：`NOT_INQUIRY_RECIPIENT`、`NOT_INQUIRY_INITIATOR`；404：`NOT_FOUND`；409：`INQUIRY_CLOSED`。未关联账号/停用档案仍返回既有 403 `TEACHER_NOT_LINKED`/`TEACHER_DISABLED`。教室 usage 与 candidates 的查询数为常数，不随课次/教师数量增长。
 
 候选返回示例（字段示意，不视为已实现接口）：
 

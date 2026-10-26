@@ -8,6 +8,7 @@ teaching class.  ``is_mine`` is narrower and means only the first case.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -25,6 +26,11 @@ def current_school_date() -> date:
     return django_timezone.localdate(timezone=ZoneInfo(settings.TIME_ZONE))
 
 
+def _active_assignment_filter(day: date) -> Q:
+    """Shared exclusive-end predicate for the assignment visibility window."""
+    return Q(effective_until__isnull=True) | Q(effective_until__gt=day)
+
+
 def active_assignments_for_teacher(
     teacher: TeacherProfile,
     *,
@@ -37,9 +43,21 @@ def active_assignments_for_teacher(
     teachers can prepare for a course they are about to start.
     """
     day = on_date or current_school_date()
-    return TeachingAssignment.objects.filter(teacher=teacher).filter(
-        Q(effective_until__isnull=True) | Q(effective_until__gt=day)
-    )
+    return TeachingAssignment.objects.filter(teacher=teacher).filter(_active_assignment_filter(day))
+
+
+def active_assignments_for_teachers(
+    teacher_ids: Iterable[UUID],
+    *,
+    on_date: date | None = None,
+) -> QuerySet[TeachingAssignment]:
+    """Return active assignments for several teachers in one query.
+
+    Contact visibility uses this batched form so a classroom history page does
+    not re-query the same assignment window once per teacher.
+    """
+    day = on_date or current_school_date()
+    return TeachingAssignment.objects.filter(teacher_id__in=teacher_ids).filter(_active_assignment_filter(day))
 
 
 def visible_sessions_for_teacher(teacher: TeacherProfile) -> QuerySet[ClassSession]:

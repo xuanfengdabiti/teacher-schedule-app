@@ -17,7 +17,10 @@ urlpatterns = [
         name="api-schema",
     ),
     path("", include("apps.accounts.urls")),
+    path("", include("apps.academics.urls")),
+    path("", include("apps.classrooms.urls")),
     path("", include("apps.scheduling.urls")),
     path("", include("apps.teaching.urls")),
+    path("", include("apps.inquiries.urls")),
     path("", include("apps.notifications.urls")),
 ]

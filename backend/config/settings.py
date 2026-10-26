@@ -127,6 +127,7 @@ INSTALLED_APPS = [
     "apps.classrooms",
     "apps.scheduling",
     "apps.teaching",
+    "apps.inquiries",
     "apps.notifications",
     "apps.imports",
 ]
@@ -266,6 +267,10 @@ SPECTACULAR_SETTINGS = {
     "SERVE_INCLUDE_SCHEMA": False,
     "ENUM_NAME_OVERRIDES": {
         "ContactVisibilityEnum": "apps.academics.models.ContactVisibility.choices",
+        "ContactStatusEnum": "apps.academics.contacts.CONTACT_STATUS_CHOICES",
+        "InquiryStatusEnum": "apps.inquiries.models.InquiryStatus.choices",
+        "InquiryReplyResultEnum": "apps.inquiries.models.InquiryReplyResult.choices",
+        "SessionStatusEnum": "apps.scheduling.models.SessionStatus.choices",
     },
 }
 
