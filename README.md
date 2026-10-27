@@ -4,7 +4,7 @@
 
 ## 当前：本地演示版
 
-Flutter 四核心（课表与调课、备注与交接、计划与学时、教室历史与协查）与 Django 后端已可本地运行，使用虚构账号和 40 个示例课次。
+Flutter 四核心（课表与调课、备注与交接、计划与学时、教室历史与协查）与 Django 后端已可本地运行，当前含 22 门课、10 位教师、30 间教室、503 名虚构学生和 840 个课次。校区为团河校区、木犀校区，楼宇为历警楼、慧警楼、高警察楼，房号为三位数。
 
 - 一键启动与账号说明：[docs/local-demo.md](docs/local-demo.md)（`pwsh scripts/start-demo.ps1`）
 - 实际验收与截图：[docs/local-demo-acceptance.md](docs/local-demo-acceptance.md)

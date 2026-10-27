@@ -26,7 +26,7 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
 
   late final FreeRoomsRepository _repository;
   late DateTime _date;
-  TimeOfDay _start = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay _start = const TimeOfDay(hour: 8, minute: 10);
   TimeOfDay _end = const TimeOfDay(hour: 9, minute: 40);
 
   FreeRoomPageData? _result;
@@ -329,7 +329,7 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
         _messageSliver(
           const EmptyView(
             title: '设置条件后查询',
-            detail: '默认今天 08:00–09:40，可直接查询。',
+            detail: '默认今天 08:10–09:40，可直接查询。',
             icon: Icons.meeting_room_outlined,
           ),
         ),

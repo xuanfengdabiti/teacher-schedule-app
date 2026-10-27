@@ -197,7 +197,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
     }
     final snapshot = _text();
     if (snapshot.isBlank) {
-      setState(() => _inlineError = '三段内容都为空，不能发布。');
+      setState(() => _inlineError = '请填写备注');
       return;
     }
     setState(() {
@@ -214,7 +214,9 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
       if (result.ok) {
         _inlineStatus = result.message;
       } else {
-        _inlineError = result.message;
+        _inlineError = result.message.contains('都为空')
+            ? '请填写备注'
+            : result.message;
       }
     });
     if (result.ok) {
@@ -332,11 +334,6 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                   title: '已恢复本机草稿',
                   text: '下面显示的是上次未成功保存到服务器的文字；保存成功后会清除本机草稿。',
                 ),
-              const _NoticeCard(
-                icon: Icons.edit_note,
-                title: '教学备注',
-                text: '保存草稿不会计入学时；点击“发布”后，同课教师才能看到本次内容。',
-              ),
               const SizedBox(height: 12),
               Card(
                 child: Padding(
@@ -367,16 +364,14 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                       _NoteField(
                         fieldKey: const Key('coveredField'),
                         controller: _covered,
-                        label: '已覆盖内容',
-                        hint: '本次课讲到哪里、完成了哪些内容',
+                        label: '已讲内容',
                         readOnly: !widget.editable,
                       ),
                       const SizedBox(height: 14),
                       _NoteField(
                         fieldKey: const Key('unfinishedField'),
                         controller: _unfinished,
-                        label: '未完成 / 需跟进',
-                        hint: '没讲完、需要下次继续或提醒学生的内容',
+                        label: '未完成内容',
                         readOnly: !widget.editable,
                       ),
                       const SizedBox(height: 14),
@@ -384,7 +379,6 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                         fieldKey: const Key('nextPlanField'),
                         controller: _nextPlan,
                         label: '下次课计划',
-                        hint: '下一次课的安排与准备事项',
                         readOnly: !widget.editable,
                       ),
                       if (_inlineStatus != null) ...[
@@ -600,14 +594,12 @@ class _NoteField extends StatelessWidget {
     required this.fieldKey,
     required this.controller,
     required this.label,
-    required this.hint,
     required this.readOnly,
   });
 
   final Key fieldKey;
   final TextEditingController controller;
   final String label;
-  final String hint;
   final bool readOnly;
 
   @override
@@ -623,7 +615,6 @@ class _NoteField extends StatelessWidget {
       style: const TextStyle(fontSize: 16, height: 1.5),
       decoration: InputDecoration(
         labelText: label,
-        hintText: hint,
         alignLabelWithHint: true,
         counterText: '',
       ),
@@ -725,7 +716,7 @@ class _ServerDraft extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _DraftLine(label: '已覆盖', value: draft.covered),
+          _DraftLine(label: '已讲内容', value: draft.covered),
           _DraftLine(label: '未完成', value: draft.unfinished),
           _DraftLine(label: '下次计划', value: draft.nextPlan, last: true),
         ],
@@ -802,7 +793,7 @@ class _PublishedCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            _DraftLine(label: '已覆盖', value: note.covered),
+            _DraftLine(label: '已讲内容', value: note.covered),
             _DraftLine(label: '未完成', value: note.unfinished),
             _DraftLine(label: '下次计划', value: note.nextPlan, last: true),
           ],
@@ -849,7 +840,7 @@ class _SharedNoteTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 7),
-          _DraftLine(label: '已覆盖', value: note.published.covered),
+          _DraftLine(label: '已讲内容', value: note.published.covered),
           _DraftLine(label: '未完成', value: note.published.unfinished),
           _DraftLine(label: '下次计划', value: note.published.nextPlan, last: true),
         ],

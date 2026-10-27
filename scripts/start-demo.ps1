@@ -21,6 +21,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repoRoot "infra/deploy/compose.yaml"
 $envFile = Join-Path $repoRoot "infra/deploy/.env.demo"
 $seedFile = Join-Path $repoRoot "scripts/seed_demo.py"
+$seedExtraFile = Join-Path $repoRoot "scripts/seed_demo_extra.py"
 $templatesDir = Join-Path $repoRoot "templates/import"
 $projectName = "teacher-schedule-demo"
 $apiUrl = "http://127.0.0.1:18000/api/v1/"
@@ -42,6 +43,9 @@ if (-not (Test-Path $envFile)) {
 }
 if (-not (Test-Path $seedFile)) {
     throw "缺少演示种子脚本：$seedFile"
+}
+if (-not (Test-Path $seedExtraFile)) {
+    throw "缺少演示扩充种子脚本：$seedExtraFile"
 }
 if (-not (Test-Path $templatesDir)) {
     throw "缺少导入模板目录：$templatesDir"
@@ -76,9 +80,13 @@ Get-ChildItem -Path $templatesDir -Filter "*.csv" | ForEach-Object {
     Invoke-DemoCompose @("cp", $_.FullName, "api:/tmp/teacher-schedule-demo/$($_.Name)")
 }
 Invoke-DemoCompose @("cp", $seedFile, "api:/tmp/seed_demo.py")
+Invoke-DemoCompose @("cp", $seedExtraFile, "api:/tmp/seed_demo_extra.py")
 
 Write-Host "==> 导入虚构课表并创建演示样例（重复启动会跳过已有数据）"
 Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < /tmp/seed_demo.py")
+
+Write-Host "==> 扩充课程、教师、教室与整学期课次（重复启动只补缺失）"
+Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < /tmp/seed_demo_extra.py")
 
 Write-Host ""
 Write-Host "演示环境已就绪：$apiUrl"
