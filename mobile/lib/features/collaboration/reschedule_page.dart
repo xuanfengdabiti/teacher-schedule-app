@@ -7,6 +7,7 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../shared/status_views.dart';
+import '../schedule/models.dart';
 import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
 
@@ -32,6 +33,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
   bool _loading = true;
   bool _submitting = false;
   int _requestNo = 0;
+  Session? _sourceSession;
 
   @override
   void initState() {
@@ -39,7 +41,23 @@ class _ReschedulePageState extends State<ReschedulePage> {
     final now = DateTime.now();
     _from = DateTime(now.year, now.month, now.day);
     _until = _from.add(const Duration(days: 14));
+    _loadSourceSession();
     _load();
+  }
+
+  Future<void> _loadSourceSession() async {
+    try {
+      final response = await widget.api.get('sessions/${widget.sessionId}/');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _sourceSession = Session.fromJson(mapOf(response.data));
+      });
+    } catch (_) {
+      // The options request surfaces connectivity errors; the header simply
+      // keeps its neutral fallback title.
+    }
   }
 
   @override
@@ -358,6 +376,11 @@ class _ReschedulePageState extends State<ReschedulePage> {
     final available = data.options.where((item) => item.isAvailable).length;
     final unverified = data.options.where((item) => item.isUnverified).length;
     final conflicts = data.options.where((item) => item.isConflict).length;
+    final source = _sourceSession;
+    final sourceDetail = source == null
+        ? null
+        : '${dateLabel(source.date)} ${periodLabel(source.startPeriod, source.endPeriod)}'
+              '${source.classroom.displayName.isEmpty ? '' : ' · ${source.classroom.displayName}'}';
     return CollabSectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -365,9 +388,21 @@ class _ReschedulePageState extends State<ReschedulePage> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '课次 ${shortId(widget.sessionId)}',
-                  style: Theme.of(context).textTheme.titleMedium,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      source?.courseName ?? '调课申请',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (sourceDetail != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        sourceDetail,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
                 ),
               ),
               CollabStatusPill(

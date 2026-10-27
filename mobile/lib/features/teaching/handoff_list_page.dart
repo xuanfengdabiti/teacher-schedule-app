@@ -67,7 +67,7 @@ class _HandoffListPageState extends State<HandoffListPage> {
     final items = _controller.items;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('教学交接'),
+        title: const Text('进度交接'),
         actions: [
           IconButton(
             key: const Key('handoffRefreshButton'),
@@ -86,12 +86,12 @@ class _HandoffListPageState extends State<HandoffListPage> {
               segments: const [
                 ButtonSegment(
                   value: 'inbox',
-                  label: Text('收件箱'),
+                  label: Text('收到的'),
                   icon: Icon(Icons.inbox_outlined),
                 ),
                 ButtonSegment(
                   value: 'sent',
-                  label: Text('已发出'),
+                  label: Text('我发出的'),
                   icon: Icon(Icons.send_outlined),
                 ),
               ],
@@ -109,7 +109,7 @@ class _HandoffListPageState extends State<HandoffListPage> {
 
   Widget _buildBody(List<Handoff> items) {
     if (items.isEmpty && _controller.loading) {
-      return const LoadingView(message: '正在读取交接列表…');
+      return const LoadingView(message: '正在读取进度交接…');
     }
     if (items.isEmpty && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _controller.load);
@@ -122,10 +122,10 @@ class _HandoffListPageState extends State<HandoffListPage> {
           children: [
             const SizedBox(height: 80),
             EmptyView(
-              title: _controller.box == 'inbox' ? '还没有收到交接' : '还没有发出交接',
+              title: _controller.box == 'inbox' ? '还没有收到进度交接' : '还没有发出进度交接',
               detail: _controller.box == 'inbox'
-                  ? '同一课程的其他教师发送交接后，会出现在这里。'
-                  : '从课次详情或备注页发送交接后，会出现在这里。',
+                  ? '同课老师发来进度交接后会出现在这里。'
+                  : '从课次详情发起进度交接后会出现在这里。',
               icon: _controller.box == 'inbox'
                   ? Icons.inbox_outlined
                   : Icons.send_outlined,
@@ -240,7 +240,7 @@ class _HandoffCard extends StatelessWidget {
               ),
               const SizedBox(height: 3),
               Text(
-                '${handoff.teachingClassName} · ${handoff.sessionLabel}',
+                handoff.sessionLabel,
                 style: const TextStyle(fontSize: 13.5, color: appMuted),
               ),
               const SizedBox(height: 8),
@@ -274,7 +274,7 @@ class _HandoffCard extends StatelessWidget {
                   handoff.status == 'pending') ...[
                 const SizedBox(height: 6),
                 const Text(
-                  '未读 · 打开后仅标记已读，不会自动确认',
+                  '未读',
                   style: TextStyle(fontSize: 12.5, color: appMuted),
                 ),
               ],
@@ -348,8 +348,8 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
 
   Future<void> _acknowledge() async {
     final confirmed = await _confirm(
-      title: '确认已接收交接？',
-      content: '确认后会记录确认时间，并给发送人一条站内消息。仅打开详情不会完成确认。',
+      title: '确认收到进度交接？',
+      content: '确认后会记录确认时间，并通知发送老师。仅打开详情不会完成确认。',
       action: '确认接收',
     );
     if (!confirmed) {
@@ -369,8 +369,8 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
 
   Future<void> _withdraw() async {
     final confirmed = await _confirm(
-      title: '撤回这条交接？',
-      content: '撤回后接收人不能再确认。已确认的交接不能撤回。',
+      title: '撤回这条进度交接？',
+      content: '撤回后接收老师不能再确认。已确认的进度交接不能撤回。',
       action: '撤回',
     );
     if (!confirmed) {
@@ -417,7 +417,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
   Widget build(BuildContext context) {
     final detail = _controller.detail;
     return Scaffold(
-      appBar: AppBar(title: const Text('交接详情')),
+      appBar: AppBar(title: const Text('进度交接详情')),
       body: _buildBody(detail),
       bottomNavigationBar: detail == null ? null : _buildActions(detail),
     );
@@ -484,7 +484,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
           ),
           const SizedBox(height: 2),
           Text(
-            detail.teachingClassName,
+            teachingSessionText(detail.sourceSession),
             style: const TextStyle(fontSize: 14, color: appMuted),
           ),
           const SizedBox(height: 12),
@@ -499,7 +499,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
                       Expanded(
                         child: _PersonLine(
                           icon: Icons.person_outline,
-                          label: '发送人',
+                          label: '发送老师',
                           name: detail.sender.name,
                         ),
                       ),
@@ -512,7 +512,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
                       Expanded(
                         child: _PersonLine(
                           icon: Icons.person_pin_circle_outlined,
-                          label: '接收人',
+                          label: '接收老师',
                           name: detail.recipient.name,
                         ),
                       ),
@@ -528,10 +528,10 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
                     value: teachingSessionText(detail.targetSession),
                   ),
                   _InfoRow(
-                    label: '备注版本',
+                    label: '关联上次发布',
                     value: detail.notePublishedVersion == null
-                        ? '未关联发布备注'
-                        : '发布 v${detail.notePublishedVersion}',
+                        ? '未关联'
+                        : '已关联上次发布内容',
                   ),
                 ],
               ),
@@ -604,9 +604,9 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
           padding: const EdgeInsets.all(14),
           child: Text(
             detail.status == 'acknowledged'
-                ? '交接已确认，不能再次修改。'
+                ? '进度交接已确认，不能再次修改。'
                 : detail.status == 'withdrawn'
-                ? '交接已撤回。'
+                ? '进度交接已撤回。'
                 : '当前账号只能查看。',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 14, color: appMuted),
@@ -633,7 +633,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
                     foregroundColor: const Color(0xFF9A3B30),
                     side: const BorderSide(color: Color(0xFFD6A39B)),
                   ),
-                  child: const Text('撤回交接'),
+                  child: const Text('撤回进度交接'),
                 ),
               ),
             if (canWithdraw && canAck) const SizedBox(width: 10),

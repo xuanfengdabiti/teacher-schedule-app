@@ -10,9 +10,16 @@ import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
 
 class ClassroomSearchPage extends StatefulWidget {
-  const ClassroomSearchPage({super.key, required this.api});
+  const ClassroomSearchPage({
+    super.key,
+    required this.api,
+    this.embedded = false,
+    this.onInquirySent,
+  });
 
   final ApiClient api;
+  final bool embedded;
+  final VoidCallback? onInquirySent;
 
   @override
   State<ClassroomSearchPage> createState() => _ClassroomSearchPageState();
@@ -91,8 +98,11 @@ class _ClassroomSearchPageState extends State<ClassroomSearchPage> {
   void _openClassroom(ClassroomItem room) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) =>
-            ClassroomUsagePage(api: widget.api, classroomId: room.id),
+        builder: (context) => ClassroomUsagePage(
+          api: widget.api,
+          classroomId: room.id,
+          onInquirySent: widget.onInquirySent,
+        ),
       ),
     );
   }
@@ -100,120 +110,124 @@ class _ClassroomSearchPageState extends State<ClassroomSearchPage> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
-    return Scaffold(
-      appBar: AppBar(title: const Text('教室协查')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              key: const ValueKey('classroom-search'),
-              controller: _search,
-              textInputAction: TextInputAction.search,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: '搜索教室代码、校区或楼宇',
-                suffixIcon: Icon(Icons.room_outlined),
-              ),
+    final content = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: TextField(
+            key: const ValueKey('classroom-search'),
+            controller: _search,
+            textInputAction: TextInputAction.search,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: '搜索教室代码、校区或楼宇',
+              suffixIcon: Icon(Icons.room_outlined),
             ),
           ),
-          if (_loading) const CollabInlineProgress(),
-          Expanded(
-            child: items == null
-                ? _loading
-                      ? const LoadingView(message: '正在读取教室…')
-                      : CollabErrorView(error: _error!, onRetry: () => _load())
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: items.isEmpty
-                        ? ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: const [
-                              SizedBox(height: 80),
-                              EmptyView(
-                                title: '没有找到教室',
-                                detail: '换一个教室代码、楼宇或校区试试。',
-                                icon: Icons.meeting_room_outlined,
-                              ),
-                            ],
-                          )
-                        : ListView.separated(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                            itemCount: items.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final room = items[index];
-                              return CollabSectionCard(
-                                key: ValueKey('classroom-${room.id}'),
-                                onTap: () => _openClassroom(room),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 46,
-                                      height: 46,
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFDDEFEA),
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      child: const Icon(
-                                        Icons.meeting_room_outlined,
-                                        color: appTeal,
-                                      ),
+        ),
+        if (_loading) const CollabInlineProgress(),
+        Expanded(
+          child: items == null
+              ? _loading
+                    ? const LoadingView(message: '正在读取教室…')
+                    : CollabErrorView(error: _error!, onRetry: () => _load())
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: items.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox(height: 80),
+                            EmptyView(
+                              title: '没有找到教室',
+                              detail: '换一个教室代码、楼宇或校区试试。',
+                              icon: Icons.meeting_room_outlined,
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final room = items[index];
+                            return CollabSectionCard(
+                              key: ValueKey('classroom-${room.id}'),
+                              onTap: () => _openClassroom(room),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 46,
+                                    height: 46,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDDEFEA),
+                                      borderRadius: BorderRadius.circular(14),
                                     ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  room.classroomCode,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleMedium,
-                                                ),
+                                    child: const Icon(
+                                      Icons.meeting_room_outlined,
+                                      color: appTeal,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                room.classroomCode,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium,
                                               ),
-                                              if (!room.isActive)
-                                                const CollabStatusPill(
-                                                  label: '停用',
-                                                  color: appMuted,
-                                                ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            room.location,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
-                                          ),
-                                          Text(
-                                            '容量 ${room.capacity}',
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
-                                          ),
-                                        ],
-                                      ),
+                                            ),
+                                            if (!room.isActive)
+                                              const CollabStatusPill(
+                                                label: '停用',
+                                                color: appMuted,
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          room.location,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                        Text(
+                                          '容量 ${room.capacity}',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
+                                        ),
+                                      ],
                                     ),
-                                    const Icon(
-                                      Icons.chevron_right,
-                                      color: appMuted,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-          ),
-        ],
-      ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: appMuted,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+        ),
+      ],
+    );
+    if (widget.embedded) {
+      return content;
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('教室记录')),
+      body: content,
     );
   }
 }

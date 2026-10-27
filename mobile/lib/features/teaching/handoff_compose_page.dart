@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/status_views.dart';
 import 'teaching_controllers.dart';
@@ -84,7 +85,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('交接已发送'),
+        title: const Text('进度交接已发送'),
         content: Text(result.message),
         actions: [
           FilledButton(
@@ -104,7 +105,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
     final prefill = _controller.prefill;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('发起教学交接'),
+        title: const Text('发起进度交接'),
         actions: [
           IconButton(
             key: const Key('handoffComposeRefreshButton'),
@@ -129,7 +130,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                   children: [
                     Expanded(
                       child: Text(
-                        '已选 ${_controller.selectedRecipientIds.length} 位接收人',
+                        '已选 ${_controller.selectedRecipientIds.length} 位接收老师',
                         style: const TextStyle(fontSize: 14, color: appMuted),
                       ),
                     ),
@@ -150,7 +151,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                               ),
                             )
                           : const Icon(Icons.send_outlined),
-                      label: const Text('发送交接'),
+                      label: const Text('发送进度交接'),
                     ),
                   ],
                 ),
@@ -161,7 +162,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
 
   Widget _buildBody(HandoffPrefill? prefill) {
     if (prefill == null && _controller.loading) {
-      return const LoadingView(message: '正在读取交接预填…');
+      return const LoadingView(message: '正在读取进度交接预填…');
     }
     if (prefill == null && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _load);
@@ -190,30 +191,18 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
           ),
           const SizedBox(height: 10),
         ],
-        const TeachingNotice(
-          text: '交接会立即发送给明确勾选的教师。只打开预填不会创建交接；发送成功后不能修改正文，请确认内容。',
-        ),
-        const SizedBox(height: 12),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('接收人', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 2),
-                const Text(
-                  '只能选择同一课程当前任课教师；未勾选不会发送。',
-                  style: TextStyle(fontSize: 13.5, color: appMuted),
-                ),
+                Text('接收老师', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
                 if (prefill.recipients.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Text(
-                      '该课程暂无可选的其他任课教师。',
-                      style: TextStyle(fontSize: 15, color: appMuted),
-                    ),
+                  const Text(
+                    '本课程暂无其他任课老师。',
+                    style: TextStyle(fontSize: 15, color: appMuted),
                   )
                 else
                   ListView.builder(
@@ -233,7 +222,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                         title: Text(recipient.name),
                         subtitle: recipient.isSuggested
                             ? const Text(
-                                '建议接收人：来源课次之后的第一节授课教师',
+                                '下次课任课老师',
                                 style: TextStyle(
                                   fontSize: 12.5,
                                   color: appTeal,
@@ -258,9 +247,9 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
               child: SwitchListTile(
                 key: const Key('handoffTargetSwitch'),
                 value: _controller.includeSuggestedTarget,
-                title: const Text('关联建议的下一课次'),
+                title: const Text('交接给下次课'),
                 subtitle: Text(
-                  teachingSessionText(suggested),
+                  _suggestedSessionLabel(prefill, suggested),
                   style: const TextStyle(fontSize: 13.5, color: appMuted),
                 ),
                 onChanged: _controller.submitting
@@ -284,12 +273,9 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const Spacer(),
-                    if (prefill.noteId != null)
-                      TeachingStatusPill(
-                        label:
-                            '已预填发布备注'
-                            '${prefill.notePublishedVersion == null ? '' : ' v${prefill.notePublishedVersion}'}',
-                      ),
+                    if (prefill.noteId != null &&
+                        prefill.notePublishedVersion != null)
+                      const TeachingStatusPill(label: '已带入上次发布内容'),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -302,7 +288,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                   textInputAction: TextInputAction.newline,
                   onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
-                    hintText: '填写未完成内容、下次计划或需要接任教师注意的事项',
+                    hintText: '写下要交接的进度',
                     alignLabelWithHint: true,
                     counterText: '',
                   ),
@@ -318,5 +304,28 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
         ),
       ],
     );
+  }
+
+  String _suggestedSessionLabel(
+    HandoffPrefill prefill,
+    HandoffSession session,
+  ) {
+    final parts = <String>[];
+    if (session.date != null) {
+      parts.add(
+        '${monthDayZh(session.date!)} ${weekdayZh(session.date!.weekday)}',
+      );
+    }
+    if (session.startPeriod > 0) {
+      parts.add('第 ${session.startPeriod}-${session.endPeriod} 节');
+    }
+    final nextTeacher = prefill.recipients
+        .where((recipient) => recipient.isSuggested)
+        .map((recipient) => recipient.name)
+        .join('、');
+    if (nextTeacher.isNotEmpty) {
+      parts.add('下次任课 $nextTeacher');
+    }
+    return parts.isEmpty ? '下次课' : parts.join(' · ');
   }
 }

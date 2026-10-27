@@ -88,12 +88,9 @@ class SessionCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 7),
                       Text(
-                        [
-                          if (session.teachingClass.name.isNotEmpty)
-                            session.teachingClass.name,
-                          if (session.teacherNames.isNotEmpty)
-                            session.teacherNames,
-                        ].join(' · '),
+                        session.teacherNames.isEmpty
+                            ? '教师未安排'
+                            : session.teacherNames,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

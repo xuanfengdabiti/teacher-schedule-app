@@ -9,7 +9,6 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
-import '../auth/auth_controller.dart';
 import '../collaboration/classroom_usage_page.dart';
 import '../collaboration/inquiry_detail_page.dart';
 import '../collaboration/notification_list_page.dart';
@@ -149,7 +148,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final state = ref.watch(scheduleControllerProvider);
     final weekAsync = state.weekFor(today);
     final calendar = ref.watch(termCalendarProvider).value;
-    final me = ref.watch(authControllerProvider).me;
     final sessions = weekAsync?.value?.sessionsOn(today) ?? const <Session>[];
     final hasOtherCoursesThisWeek =
         weekAsync?.value?.sessions.any(
@@ -163,7 +161,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final teachingWeek = sessionWeek.isEmpty
         ? calendar?.teachingWeekFor(today)
         : sessionWeek.first;
-    final term = me?.currentTerm;
 
     return Scaffold(
       appBar: AppBar(
@@ -200,11 +197,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
-                child: _TodayHeader(
-                  date: today,
-                  teachingWeek: teachingWeek,
-                  termName: term?.name,
-                ),
+                child: _TodayHeader(date: today, teachingWeek: teachingWeek),
               ),
             ),
             if (weekAsync == null || weekAsync.isLoading)
@@ -285,72 +278,42 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 }
 
 class _TodayHeader extends StatelessWidget {
-  const _TodayHeader({
-    required this.date,
-    required this.teachingWeek,
-    required this.termName,
-  });
+  const _TodayHeader({required this.date, required this.teachingWeek});
 
   final DateTime date;
   final int? teachingWeek;
-  final String? termName;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFE4F3EF), Color(0xFFF2F9F7)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(22),
+        color: const Color(0xFFEAF5F2),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFD5E9E4)),
       ),
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '今天',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: appTeal,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${monthDayZh(date)} ${weekdayZh(date.weekday)}',
-                  style: const TextStyle(
-                    fontSize: 25,
-                    fontWeight: FontWeight.w800,
-                    color: appInk,
-                  ),
-                ),
-                if (termName != null && termName!.isNotEmpty) ...[
-                  const SizedBox(height: 5),
-                  Text(
-                    termName!,
-                    style: const TextStyle(fontSize: 14, color: appMuted),
-                  ),
-                ],
-              ],
+            child: Text(
+              '${monthDayZh(date)} ${weekdayZh(date.weekday)}',
+              style: const TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: appInk,
+              ),
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.86),
-              borderRadius: BorderRadius.circular(14),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
               teachingWeek == null ? '学期外' : '第$teachingWeek周',
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: appTeal,
               ),

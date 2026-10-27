@@ -164,34 +164,34 @@ class _ContractServer {
         'results': [_sessionSummary],
       });
     }
-    if (options.method == 'GET' && path.endsWith('/sessions/session-1/')) {
-      return jsonResponse(_sessionDetail);
-    }
-    if (options.method == 'GET' &&
-        path.endsWith('/sessions/session-1/notes/')) {
-      return jsonResponse({
-        'mine': null,
-        'others': <Object>[],
-        'previous': null,
-      });
-    }
-    if (options.method == 'PUT' &&
-        path.endsWith('/sessions/session-1/notes/mine/')) {
-      final body = Map<String, dynamic>.from(options.data as Map);
-      savedDraftBodies.add(body);
-      return jsonResponse({
-        'id': 'note-1',
-        'version': 1,
-        'draft': {
-          'covered': body['covered'],
-          'unfinished': body['unfinished'],
-          'next_plan': body['next_plan'],
-        },
-        'published': null,
-        'published_at': null,
-        'published_version': null,
-        'updated_at': '2026-03-01T10:00:00+08:00',
-      });
+    if (path.contains('/sessions/session-1')) {
+      if (path.endsWith('/notes/')) {
+        return jsonResponse({
+          'mine': null,
+          'others': <Object>[],
+          'previous': null,
+        });
+      }
+      if (path.endsWith('/notes/mine/') && options.method == 'PUT') {
+        final body = Map<String, dynamic>.from(options.data as Map);
+        savedDraftBodies.add(body);
+        return jsonResponse({
+          'id': 'note-1',
+          'version': 1,
+          'draft': {
+            'covered': body['covered'],
+            'unfinished': body['unfinished'],
+            'next_plan': body['next_plan'],
+          },
+          'published': null,
+          'published_at': null,
+          'published_version': null,
+          'updated_at': '2026-03-01T10:00:00+08:00',
+        });
+      }
+      if (path.endsWith('/sessions/session-1/') && options.method == 'GET') {
+        return jsonResponse(_sessionDetail);
+      }
     }
     return jsonResponse({
       'code': 'UNEXPECTED',
@@ -328,5 +328,41 @@ void main() {
       (request) => request.path.endsWith('/me/'),
     );
     expect(meRequest.headers['Authorization'], 'Bearer restored-access');
+  });
+
+  testWidgets('整周总览复用已取周数据，点课程进入详情', (tester) async {
+    final app = await _pumpApp(tester, signedIn: true);
+    final server = app.server;
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('session-session-1')),
+      reason: '有令牌启动未恢复到课表',
+    );
+    expect(server.sessionListCalls, 1);
+
+    await tester.tap(find.text('课表'));
+    await _pumpUntil(
+      tester,
+      find.byKey(ValueKey('dayTab-${isoDate(server.today)}')),
+      reason: '未进入周课表',
+    );
+    expect(server.sessionListCalls, 1);
+
+    await tester.tap(find.text('整周总览'));
+    await tester.pump(const Duration(milliseconds: 200));
+    final overviewBlock = find.byKey(
+      const ValueKey('overview-session-session-1'),
+    );
+    expect(overviewBlock, findsOneWidget);
+    final blockSize = tester.getSize(overviewBlock);
+    expect(blockSize.height, closeTo(58 * 2 - 3, 0.1), reason: '1–2 节课卡应跨两节高度');
+    expect(server.sessionListCalls, 1, reason: '切换总览不应重复请求本周');
+
+    // Tapping the lower half must open the same session detail.
+    final bottomCenter =
+        tester.getCenter(overviewBlock) + Offset(0, blockSize.height / 4);
+    await tester.tapAt(bottomCenter);
+    await _pumpUntil(tester, find.text('课程信息'), reason: '总览课程下半区未进入详情');
+    expect(server.sessionListCalls, 1);
   });
 }

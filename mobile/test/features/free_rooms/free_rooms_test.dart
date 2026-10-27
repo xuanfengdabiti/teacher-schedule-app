@@ -141,7 +141,7 @@ void main() {
     expect(find.text('容量 40 · 数据不完整'), findsOneWidget);
   });
 
-  testWidgets('点击结果按查询日期打开教室历史', (tester) async {
+  testWidgets('点击结果按查询日期打开教室记录', (tester) async {
     final api = _FakeApiClient(
       onGet: (path, query) async {
         if (path == 'classrooms/availability/') {
@@ -174,7 +174,7 @@ void main() {
     await tester.tap(card);
     await tester.pumpAndSettle();
 
-    expect(find.text('教室使用记录'), findsOneWidget);
+    expect(find.text('教室记录'), findsOneWidget);
     expect(
       api.calls.any(
         (call) =>

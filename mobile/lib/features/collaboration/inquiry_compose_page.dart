@@ -11,10 +11,12 @@ class InquiryComposePage extends StatefulWidget {
     super.key,
     required this.api,
     required this.classroomId,
+    this.initialDate,
   });
 
   final ApiClient api;
   final String classroomId;
+  final DateTime? initialDate;
 
   @override
   State<InquiryComposePage> createState() => _InquiryComposePageState();
@@ -34,9 +36,15 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _from = DateTime(now.year, now.month, now.day, now.hour);
-    _to = _from.add(const Duration(hours: 2));
+    final initial = widget.initialDate;
+    if (initial != null) {
+      _from = DateTime(initial.year, initial.month, initial.day, 8, 10);
+      _to = DateTime(initial.year, initial.month, initial.day, 17, 10);
+    } else {
+      final now = DateTime.now();
+      _from = DateTime(now.year, now.month, now.day, now.hour);
+      _to = _from.add(const Duration(hours: 2));
+    }
     _description.addListener(_onChanged);
     _loadCandidates();
   }
@@ -60,7 +68,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
       return '结束时间必须晚于开始时间。';
     }
     if (_to.difference(_from) > const Duration(days: 7)) {
-      return '协查时间跨度不能超过 7 天。';
+      return '询问时间跨度不能超过 7 天。';
     }
     return null;
   }
@@ -113,7 +121,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
     final selected = await pickCollabDateTime(
       context,
       initial: _from,
-      helpText: '选择协查开始时间',
+      helpText: '选择询问开始时间',
     );
     if (selected == null || !mounted) {
       return;
@@ -135,7 +143,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
     final selected = await pickCollabDateTime(
       context,
       initial: _to,
-      helpText: '选择协查结束时间',
+      helpText: '选择询问结束时间',
     );
     if (selected == null || !mounted) {
       return;
@@ -187,8 +195,8 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('协查已发起'),
-          content: const Text('已只向选中的教师发送。回复会追加在协查详情中。'),
+          title: const Text('失物询问已发起'),
+          content: const Text('已只向选中的教师发送。回复会追加在失物详情中。'),
           actions: [
             FilledButton(
               onPressed: () => Navigator.pop(context),
@@ -198,7 +206,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
         ),
       );
       if (mounted) {
-        Navigator.pop(context, true);
+        Navigator.of(context).pop(true);
       }
     } catch (error) {
       if (!mounted) {
@@ -220,7 +228,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
         _description.text.trim().isNotEmpty &&
         _rangeError == null;
     return Scaffold(
-      appBar: AppBar(title: const Text('发起失物协查')),
+      appBar: AppBar(title: const Text('发起失物询问')),
       body: Column(
         children: [
           if (_loadingCandidates) const CollabInlineProgress(),
@@ -229,7 +237,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
                 const CollabNotice(
-                  text: '协查只发给当前时段相关且被选中的教师；排定课程记录不代表实际到场或物品去向。',
+                  text: '失物询问只发给当前时段相关且被选中的教师；排定课程记录不代表实际到场或物品去向。',
                   icon: Icons.volunteer_activism_outlined,
                 ),
                 const SizedBox(height: 12),
@@ -238,7 +246,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '协查时间范围',
+                        '询问时间范围',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 10),
@@ -292,7 +300,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                 ),
                 CollabSectionTitle(
                   title: '选择接收教师',
-                  subtitle: '只会发送给勾选的人，未选中的教师不会收到协查。',
+                  subtitle: '只会发送给勾选的人，未选中的教师不会收到失物询问。',
                   trailing: CollabStatusPill(
                     label: '已选 ${_selected.length}',
                     color: _selected.isEmpty ? appMuted : appTeal,
@@ -305,7 +313,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                           child: LoadingView(message: '正在查找相关教师…'),
                         )
                       : CollabErrorView(
-                          error: _candidatesError ?? Exception('没有拿到协查候选。'),
+                          error: _candidatesError ?? Exception('没有拿到失物询问候选。'),
                           onRetry: () => _loadCandidates(),
                         )
                 else if (candidates.candidates.isEmpty)

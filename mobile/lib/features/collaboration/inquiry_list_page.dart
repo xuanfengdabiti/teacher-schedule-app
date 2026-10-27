@@ -8,16 +8,25 @@ import 'collaboration_ui.dart';
 import 'inquiry_detail_page.dart';
 
 class InquiryListPage extends StatefulWidget {
-  const InquiryListPage({super.key, required this.api});
+  const InquiryListPage({
+    super.key,
+    required this.api,
+    this.embedded = false,
+    this.initialBox = 'received',
+    this.refreshToken = 0,
+  });
 
   final ApiClient api;
+  final bool embedded;
+  final String initialBox;
+  final int refreshToken;
 
   @override
-  State<InquiryListPage> createState() => _InquiryListPageState();
+  State<InquiryListPage> createState() => InquiryListPageState();
 }
 
-class _InquiryListPageState extends State<InquiryListPage> {
-  String _box = 'received';
+class InquiryListPageState extends State<InquiryListPage> {
+  late String _box = widget.initialBox;
   final Map<String, List<InquiryItem>> _cache = {};
   Object? _error;
   bool _loading = true;
@@ -25,16 +34,35 @@ class _InquiryListPageState extends State<InquiryListPage> {
   @override
   void initState() {
     super.initState();
-    _load('received');
+    _load(_box);
+  }
+
+  @override
+  void didUpdateWidget(covariant InquiryListPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.refreshToken != oldWidget.refreshToken) {
+      refreshSent();
+    }
+  }
+
+  Future<void> refreshSent() async {
+    _cache.clear();
+    _error = null;
+    _loading = true;
+    await _load('sent', forceRefresh: true);
   }
 
   List<InquiryItem>? get _items => _cache[_box];
 
-  Future<void> _load(String box, {bool keepData = false}) async {
+  Future<void> _load(
+    String box, {
+    bool keepData = false,
+    bool forceRefresh = false,
+  }) async {
     setState(() {
       _box = box;
       _loading = true;
-      if (!keepData || _cache[box] == null) {
+      if (!keepData || forceRefresh || _cache[box] == null) {
         _error = null;
       }
     });
@@ -83,85 +111,89 @@ class _InquiryListPageState extends State<InquiryListPage> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
-    return Scaffold(
-      appBar: AppBar(title: const Text('失物协查')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'received',
-                  icon: Icon(Icons.inbox_outlined),
-                  label: Text('收到的'),
-                ),
-                ButtonSegment(
-                  value: 'sent',
-                  icon: Icon(Icons.outbox_outlined),
-                  label: Text('我发起的'),
-                ),
-              ],
-              selected: {_box},
-              onSelectionChanged: (selection) {
-                final next = selection.first;
-                if (next == _box) {
-                  return;
-                }
-                final cached = _cache[next];
-                setState(() {
-                  _box = next;
-                  _error = null;
-                  _loading = cached == null;
-                });
-                if (cached == null) {
-                  _load(next);
-                }
-              },
-            ),
+    final content = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(
+                value: 'received',
+                icon: Icon(Icons.inbox_outlined),
+                label: Text('收到的'),
+              ),
+              ButtonSegment(
+                value: 'sent',
+                icon: Icon(Icons.outbox_outlined),
+                label: Text('我发起的'),
+              ),
+            ],
+            selected: {_box},
+            onSelectionChanged: (selection) {
+              final next = selection.first;
+              if (next == _box) {
+                return;
+              }
+              final cached = _cache[next];
+              setState(() {
+                _box = next;
+                _error = null;
+                _loading = cached == null;
+              });
+              if (cached == null) {
+                _load(next);
+              }
+            },
           ),
-          if (_loading) const CollabInlineProgress(),
-          Expanded(
-            child: items == null
-                ? _loading
-                      ? const LoadingView(message: '正在读取协查记录…')
-                      : CollabErrorView(
-                          error: _error!,
-                          onRetry: () => _load(_box),
+        ),
+        if (_loading) const CollabInlineProgress(),
+        Expanded(
+          child: items == null
+              ? _loading
+                    ? const LoadingView(message: '正在读取失物消息…')
+                    : CollabErrorView(
+                        error: _error!,
+                        onRetry: () => _load(_box),
+                      )
+              : RefreshIndicator(
+                  onRefresh: () => _load(_box, keepData: true),
+                  child: items.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox(height: 80),
+                            EmptyView(
+                              title: '暂无失物消息',
+                              detail: '可以在教室记录中查看使用记录并发起失物询问。',
+                              icon: Icons.inventory_2_outlined,
+                            ),
+                          ],
                         )
-                : RefreshIndicator(
-                    onRefresh: () => _load(_box, keepData: true),
-                    child: items.isEmpty
-                        ? ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            children: const [
-                              SizedBox(height: 80),
-                              EmptyView(
-                                title: '暂无协查记录',
-                                detail: '可以从教室使用记录页发起失物协查。',
-                                icon: Icons.inventory_2_outlined,
-                              ),
-                            ],
-                          )
-                        : ListView.separated(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                            itemCount: items.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final item = items[index];
-                              return _InquiryCard(
-                                key: ValueKey('inquiry-${item.id}'),
-                                item: item,
-                                onTap: () => _open(item),
-                              );
-                            },
-                          ),
-                  ),
-          ),
-        ],
-      ),
+                      : ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final item = items[index];
+                            return _InquiryCard(
+                              key: ValueKey('inquiry-${item.id}'),
+                              item: item,
+                              onTap: () => _open(item),
+                            );
+                          },
+                        ),
+                ),
+        ),
+      ],
+    );
+    if (widget.embedded) {
+      return content;
+    }
+    return Scaffold(
+      appBar: AppBar(title: const Text('失物消息')),
+      body: content,
     );
   }
 }

@@ -155,16 +155,6 @@ class _DetailBody extends StatelessWidget {
                         : session.teacherNames,
                   ),
                   _InfoRow(
-                    icon: Icons.groups_outlined,
-                    label: '班级',
-                    value: [
-                      if (session.teachingClass.name.isNotEmpty)
-                        session.teachingClass.name,
-                      if (session.teachingClass.classCode.isNotEmpty)
-                        session.teachingClass.classCode,
-                    ].join(' · '),
-                  ),
-                  _InfoRow(
                     icon: Icons.location_on_outlined,
                     label: '教室',
                     value: session.classroom.displayName.isEmpty
@@ -204,13 +194,6 @@ class _DetailBody extends StatelessWidget {
                     value: session.enrolledCount == null
                         ? '—'
                         : '${session.enrolledCount} 人',
-                  ),
-                  _InfoRow(
-                    icon: Icons.badge_outlined,
-                    label: '开课编号',
-                    value: session.offeringCode.isEmpty
-                        ? '—'
-                        : session.offeringCode,
                     last: !hasLeadTeacher,
                   ),
                   if (hasLeadTeacher)
@@ -308,7 +291,7 @@ class _SessionActions extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.swap_horiz_rounded),
-                label: const Text('发交接'),
+                label: const Text('进度交接'),
               ),
             ),
             const SizedBox(width: 10),

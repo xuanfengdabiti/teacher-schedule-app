@@ -5,8 +5,7 @@ import '../../app/theme.dart';
 import '../../core/network/api_client.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
-import '../collaboration/classroom_search_page.dart';
-import '../collaboration/inquiry_list_page.dart';
+import '../collaboration/classroom_inquiry_page.dart';
 import '../collaboration/reschedule_requests_page.dart';
 import '../free_rooms/free_rooms_page.dart';
 import '../schedule/models.dart';
@@ -54,7 +53,7 @@ class FeaturesPage extends ConsumerWidget {
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: [
-                    Text('我的开课', style: Theme.of(context).textTheme.titleLarge),
+                    Text('我的课程', style: Theme.of(context).textTheme.titleLarge),
                     const Spacer(),
                     if (items.isNotEmpty)
                       Text(
@@ -173,7 +172,7 @@ class _QuickActions extends StatelessWidget {
                       child: _QuickTile(
                         key: const Key('handoffEntry'),
                         icon: Icons.swap_horiz_rounded,
-                        label: '交接收发',
+                        label: '进度交接',
                         onTap: () => Navigator.of(context).push<void>(
                           MaterialPageRoute(
                             builder: (context) => HandoffListPage(api: api),
@@ -198,25 +197,13 @@ class _QuickActions extends StatelessWidget {
                     SizedBox(
                       width: width,
                       child: _QuickTile(
-                        key: const Key('classroomSearchEntry'),
-                        icon: Icons.meeting_room_outlined,
-                        label: '教室历史',
+                        key: const Key('classroomInquiryEntry'),
+                        icon: Icons.room_preferences_outlined,
+                        label: '教室与失物',
                         onTap: () => Navigator.of(context).push<void>(
                           MaterialPageRoute(
-                            builder: (context) => ClassroomSearchPage(api: api),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: width,
-                      child: _QuickTile(
-                        key: const Key('inquiryEntry'),
-                        icon: Icons.fact_check_outlined,
-                        label: '协查收发',
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (context) => InquiryListPage(api: api),
+                            builder: (context) =>
+                                ClassroomInquiryPage(api: api),
                           ),
                         ),
                       ),
@@ -321,20 +308,7 @@ class _OfferingCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              '${offering.teachingClass.name} · ${offering.teachingClass.classCode}',
-              style: const TextStyle(
-                fontSize: 15,
-                height: 1.45,
-                color: appMuted,
-              ),
-            ),
             const SizedBox(height: 10),
-            _OfferingLine(
-              icon: Icons.tag,
-              text: '${offering.courseCode} / ${offering.offeringCode}',
-            ),
             _OfferingLine(
               icon: Icons.groups_outlined,
               text: roles.isEmpty ? '未安排教师' : roles,

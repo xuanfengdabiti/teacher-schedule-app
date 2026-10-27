@@ -110,7 +110,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
         _replyBody.clear();
       });
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('回复已追加到协查记录。')));
+          .showSnackBar(const SnackBar(content: Text('回复已追加到失物记录。')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -166,7 +166,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
         _busy = false;
       });
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('协查已结案，仍保留历史记录。')));
+          .showSnackBar(const SnackBar(content: Text('失物询问已结案，仍保留历史记录。')));
     } catch (error) {
       if (!mounted) {
         return;
@@ -180,10 +180,10 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
   Widget build(BuildContext context) {
     final item = _item;
     return Scaffold(
-      appBar: AppBar(title: const Text('协查详情')),
+      appBar: AppBar(title: const Text('失物详情')),
       body: item == null
           ? _loading
-                ? const LoadingView(message: '正在读取协查详情…')
+                ? const LoadingView(message: '正在读取失物详情…')
                 : CollabErrorView(error: _error!, onRetry: () => _load())
           : Column(
               children: [

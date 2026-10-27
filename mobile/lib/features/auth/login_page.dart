@@ -15,6 +15,9 @@ class LoginPage extends ConsumerStatefulWidget {
 
 class _LoginPageState extends ConsumerState<LoginPage> {
   static const _demoPassword = 'TeacherDemo2026!';
+  static const _demoLi = 'li@example.invalid';
+  static const _demoZhang = 'zhang@example.invalid';
+  static const _demoWang = 'wang@example.invalid';
   static const _demoTeacherA = 't0001@example.invalid';
   static const _demoTeacherB = 't0002@example.invalid';
 
@@ -181,19 +184,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                               ),
                               const SizedBox(height: 12),
                               const Text(
-                                '可直接填入虚构教师账号；密码统一为 TeacherDemo2026!',
+                                '直接选择演示教师，密码统一为 TeacherDemo2026!',
                                 style: TextStyle(
                                   fontSize: 13,
                                   height: 1.45,
-                                  color: appMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                '教师甲 t0001@example.invalid\n教师乙 t0002@example.invalid',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  height: 1.5,
                                   color: appMuted,
                                 ),
                               ),
@@ -202,22 +196,78 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      key: const Key('demoTeacherAButton'),
-                                      onPressed: () => _fillDemo(_demoTeacherA),
-                                      child: const Text('填入教师甲'),
+                                      key: const Key('demoLiButton'),
+                                      onPressed: () => _fillDemo(_demoLi),
+                                      child: const Text('李老师'),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: OutlinedButton(
-                                      key: const Key('demoTeacherBButton'),
-                                      onPressed: () => _fillDemo(_demoTeacherB),
-                                      child: const Text('填入教师乙'),
+                                      key: const Key('demoZhangButton'),
+                                      onPressed: () => _fillDemo(_demoZhang),
+                                      child: const Text('张老师'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      key: const Key('demoWangButton'),
+                                      onPressed: () => _fillDemo(_demoWang),
+                                      child: const Text('王老师'),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 4),
+                              Theme(
+                                data: Theme.of(context)
+                                    .copyWith(dividerColor: Colors.transparent),
+                                child: ExpansionTile(
+                                  key: const Key('otherDemoAccountsTile'),
+                                  tilePadding: EdgeInsets.zero,
+                                  childrenPadding: const EdgeInsets.only(
+                                    bottom: 8,
+                                  ),
+                                  shape: const Border(),
+                                  collapsedShape: const Border(),
+                                  title: const Text(
+                                    '其他演示账号',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: appMuted,
+                                    ),
+                                  ),
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            key: const Key(
+                                              'demoTeacherAButton',
+                                            ),
+                                            onPressed: () =>
+                                                _fillDemo(_demoTeacherA),
+                                            child: const Text('教师甲'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            key: const Key(
+                                              'demoTeacherBButton',
+                                            ),
+                                            onPressed: () =>
+                                                _fillDemo(_demoTeacherB),
+                                            child: const Text('教师乙'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
                               TextFormField(
                                 key: const Key('emailField'),
                                 controller: _emailController,

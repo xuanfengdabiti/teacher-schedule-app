@@ -8,6 +8,7 @@ import '../../shared/status_views.dart';
 import 'models.dart';
 import 'schedule_controller.dart';
 import 'session_card.dart';
+import 'week_overview.dart';
 
 class WeekPage extends ConsumerStatefulWidget {
   const WeekPage({super.key});
@@ -17,6 +18,8 @@ class WeekPage extends ConsumerStatefulWidget {
 }
 
 class _WeekPageState extends ConsumerState<WeekPage> {
+  bool _overview = false;
+
   @override
   void initState() {
     super.initState();
@@ -126,32 +129,61 @@ class _WeekPageState extends ConsumerState<WeekPage> {
                 ],
               ),
             ),
-            SizedBox(
-              height: 76,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                scrollDirection: Axis.horizontal,
-                itemCount: 7,
-                separatorBuilder: (context, index) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final date = monday.add(Duration(days: index));
-                  final selected = sameDay(date, selectedDate);
-                  final today = sameDay(date, DateTime.now());
-                  final hasSessions =
-                      week?.sessionsOn(date).isNotEmpty ?? false;
-                  return _DayChip(
-                    key: ValueKey('dayTab-${isoDate(date)}'),
-                    date: date,
-                    selected: selected,
-                    isToday: today,
-                    hasSessions: hasSessions,
-                    onTap: () => ref
-                        .read(scheduleControllerProvider.notifier)
-                        .selectDate(date),
-                  );
-                },
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<bool>(
+                  key: const Key('weekViewToggle'),
+                  segments: const [
+                    ButtonSegment(
+                      value: false,
+                      label: Text('按日列表'),
+                      icon: Icon(Icons.view_day_outlined, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: true,
+                      label: Text('整周总览'),
+                      icon: Icon(Icons.calendar_view_week_outlined, size: 18),
+                    ),
+                  ],
+                  selected: {_overview},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (selection) {
+                    setState(() => _overview = selection.first);
+                  },
+                ),
               ),
             ),
+            const SizedBox(height: 8),
+            if (!_overview)
+              SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: 7,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final date = monday.add(Duration(days: index));
+                    final selected = sameDay(date, selectedDate);
+                    final today = sameDay(date, DateTime.now());
+                    final hasSessions =
+                        week?.sessionsOn(date).isNotEmpty ?? false;
+                    return _DayChip(
+                      key: ValueKey('dayTab-${isoDate(date)}'),
+                      date: date,
+                      selected: selected,
+                      isToday: today,
+                      hasSessions: hasSessions,
+                      onTap: () => ref
+                          .read(scheduleControllerProvider.notifier)
+                          .selectDate(date),
+                    );
+                  },
+                ),
+              ),
             const SizedBox(height: 10),
             Expanded(
               child: weekAsync == null || weekAsync.isLoading
@@ -162,6 +194,14 @@ class _WeekPageState extends ConsumerState<WeekPage> {
                       onRetry: () => ref
                           .read(scheduleControllerProvider.notifier)
                           .refreshWeek(selectedDate),
+                    )
+                  : _overview
+                  ? WeekOverview(
+                      monday: monday,
+                      sessions: week?.sessions ?? const [],
+                      periods: calendar?.periods ?? const [],
+                      onOpenSession: (session) =>
+                          context.push('/sessions/${session.id}'),
                     )
                   : _WeekContent(
                       date: selectedDate,

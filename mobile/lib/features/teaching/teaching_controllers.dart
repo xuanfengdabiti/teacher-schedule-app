@@ -312,7 +312,7 @@ class HandoffDetailController extends ChangeNotifier {
       return const HandoffAction(ok: false, message: '正在处理，请稍候。');
     }
     if (detail?.canAcknowledge != true) {
-      return const HandoffAction(ok: false, message: '当前交接不能确认。');
+      return const HandoffAction(ok: false, message: '当前进度交接不能确认。');
     }
     acting = true;
     error = null;
@@ -320,7 +320,7 @@ class HandoffDetailController extends ChangeNotifier {
     try {
       final updated = await api.acknowledgeHandoff(handoffId);
       detail = updated;
-      notice = '已确认收到交接。';
+      notice = '已确认收到进度交接。';
       return HandoffAction(ok: true, message: notice!, detail: updated);
     } on Object catch (value) {
       final message = ApiException.fromUnknown(value).message;
@@ -337,7 +337,7 @@ class HandoffDetailController extends ChangeNotifier {
       return const HandoffAction(ok: false, message: '正在处理，请稍候。');
     }
     if (detail?.canWithdraw != true) {
-      return const HandoffAction(ok: false, message: '当前交接不能撤回。');
+      return const HandoffAction(ok: false, message: '当前进度交接不能撤回。');
     }
     acting = true;
     error = null;
@@ -345,7 +345,7 @@ class HandoffDetailController extends ChangeNotifier {
     try {
       final updated = await api.withdrawHandoff(handoffId);
       detail = updated;
-      notice = '交接已撤回。';
+      notice = '进度交接已撤回。';
       return HandoffAction(ok: true, message: notice!, detail: updated);
     } on Object catch (value) {
       final message = ApiException.fromUnknown(value).message;
@@ -457,7 +457,9 @@ class HandoffComposeController extends ChangeNotifier {
       );
       return HandoffAction(
         ok: true,
-        message: created.isEmpty ? '交接已发送。' : '已向 ${created.length} 位教师发送交接。',
+        message: created.isEmpty
+            ? '进度交接已发送。'
+            : '已向 ${created.length} 位老师发送进度交接。',
         detail: created.isEmpty ? null : created.first,
       );
     } on Object catch (value) {

@@ -16,11 +16,13 @@ class ClassroomUsagePage extends StatefulWidget {
     required this.api,
     required this.classroomId,
     this.initialDate,
+    this.onInquirySent,
   });
 
   final ApiClient api;
   final String classroomId;
   final DateTime? initialDate;
+  final VoidCallback? onInquirySent;
 
   @override
   State<ClassroomUsagePage> createState() => _ClassroomUsagePageState();
@@ -124,12 +126,18 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
         builder: (context) => InquiryComposePage(
           api: widget.api,
           classroomId: widget.classroomId,
+          initialDate: _date,
         ),
       ),
     );
     if (changed == true && mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('协查已发起，可在“失物协查”列表查看。')));
+      final hubCallback = widget.onInquirySent;
+      if (hubCallback != null) {
+        hubCallback();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
     }
   }
 
@@ -137,7 +145,7 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
   Widget build(BuildContext context) {
     final data = _data;
     return Scaffold(
-      appBar: AppBar(title: const Text('教室使用记录')),
+      appBar: AppBar(title: const Text('教室记录')),
       body: data == null
           ? _loading
                 ? const LoadingView(message: '正在读取教室使用记录…')
@@ -253,7 +261,7 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
             child: FilledButton.icon(
               onPressed: _openInquiry,
               icon: const Icon(Icons.search_outlined),
-              label: const Text('发起失物协查'),
+              label: const Text('发起失物询问'),
             ),
           ),
         ],

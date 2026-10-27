@@ -222,7 +222,7 @@ class _NotificationListPageState extends State<NotificationListPage> {
                               SizedBox(height: 80),
                               EmptyView(
                                 title: '暂无消息',
-                                detail: '课表变更、审批和协查提醒会显示在这里。',
+                                detail: '课表变更、审批和失物询问提醒会显示在这里。',
                                 icon: Icons.notifications_none_outlined,
                               ),
                             ],
