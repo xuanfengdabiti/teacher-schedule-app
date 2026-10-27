@@ -28,8 +28,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('刷新失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ApiException.fromUnknown(error).message)),
+        );
       }
     } finally {
       if (mounted) {
@@ -154,16 +155,16 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ),
           const SizedBox(height: 14),
           Card(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('连接', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  _ProfileRow(label: '服务地址', value: serverUrl, last: true),
-                ],
-              ),
+            child: ExpansionTile(
+              shape: const Border(),
+              collapsedShape: const Border(),
+              leading: const Icon(Icons.link_outlined, color: appTeal),
+              title: const Text('连接设置'),
+              subtitle: const Text('仅在需要更改连接地址时展开'),
+              childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+              children: [
+                _ProfileRow(label: '连接地址', value: serverUrl, last: true),
+              ],
             ),
           ),
           const SizedBox(height: 22),
@@ -192,11 +193,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   }
 
   static String _teacherStatusLabel(String status) => switch (status) {
-    'active' => '教师已关联',
+    'active' => '教师身份已确认',
     'pending' => '待审核',
     'disabled' => '已停用',
-    'unlinked' => '未关联',
-    _ => status,
+    'unlinked' => '待确认教师身份',
+    _ => '身份待确认',
   };
 }
 

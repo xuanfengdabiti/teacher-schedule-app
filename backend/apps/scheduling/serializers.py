@@ -390,6 +390,7 @@ class SessionSummarySerializer(serializers.Serializer):
     is_moved = serializers.SerializerMethodField()
     origin_teaching_date = serializers.DateField(allow_null=True)
     version = serializers.IntegerField()
+    previous_note_preview = serializers.SerializerMethodField()
 
     @extend_schema_field(TeachingClassBriefSerializer)
     def get_teaching_class(self, obj) -> dict:
@@ -454,6 +455,17 @@ class SessionSummarySerializer(serializers.Serializer):
         return session_local_date(obj) != obj.origin_teaching_date or (
             obj.origin_period is not None and obj.start_period != obj.origin_period
         )
+
+    @extend_schema_field(serializers.CharField())
+    def get_previous_note_preview(self, obj) -> str:
+        """Short reminder from the nearest earlier note of the same offering.
+
+        The list/detail views supply a mapping computed in one batched query so
+        serialization never touches the database per card.  Absent context (for
+        example the sync payload) yields an empty string rather than a query.
+        """
+        previews = self.context.get("previous_note_previews") or {}
+        return previews.get(obj.id, "")
 
 
 class SessionListResponseSerializer(serializers.Serializer):

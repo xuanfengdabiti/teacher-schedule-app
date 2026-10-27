@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../core/json.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
+import '../schedule/schedule_controller.dart';
 import 'note_models.dart';
 import 'notes_controller.dart';
 
@@ -30,7 +31,7 @@ class NotesPage extends ConsumerWidget {
         title: Text(title?.isNotEmpty == true ? '备注 · $title' : '教学备注'),
       ),
       body: state.isLoading
-          ? const LoadingView(message: '正在读取教学备注…')
+          ? const LoadingView(message: '正在加载…')
           : state.loadError != null && !state.offline
           ? ErrorView(
               message: state.loadError!,
@@ -182,6 +183,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
           .read(notesControllerProvider(widget.sessionId))
           .effectiveBaseVersion;
       await _cleanupIfNeeded(snapshot);
+      ref.read(scheduleControllerProvider.notifier).invalidateWeekCache();
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(result.message)));
@@ -225,6 +227,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
           .read(notesControllerProvider(widget.sessionId))
           .effectiveBaseVersion;
       await _cleanupIfNeeded(snapshot);
+      ref.read(scheduleControllerProvider.notifier).invalidateWeekCache();
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(result.message)));
@@ -253,8 +256,8 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('载入服务器版本？'),
-        content: const Text('编辑框会换成服务器上的最新内容；当前本地稿会另存为冲突备份，可随时恢复。'),
+        title: const Text('使用最新内容？'),
+        content: const Text('编辑框会换成最新内容；当前输入会另行备份，可随时恢复。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -262,7 +265,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('载入'),
+            child: const Text('使用最新内容'),
           ),
         ],
       ),
@@ -283,7 +286,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
         .effectiveBaseVersion;
     setState(() {
       _inlineError = null;
-      _inlineStatus = '已载入服务器版本，本地稿已备份。';
+      _inlineStatus = '已使用最新内容，当前输入已备份。';
     });
   }
 
@@ -297,7 +300,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
     _nextPlan.text = backup.nextPlan;
     setState(() {
       _inlineError = null;
-      _inlineStatus = '已恢复本地备份；确认后可保存到服务器。';
+      _inlineStatus = '已恢复未保存的草稿，确认后可保存。';
     });
   }
 
@@ -318,21 +321,19 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                 const _NoticeCard(
                   icon: Icons.lock_outline,
                   title: '只读',
-                  text: '只有该课次实际授课教师可以修改和发布备注。',
+                  text: '仅任课老师可编辑。',
                 ),
               if (widget.offlineError != null)
-                _NoticeCard(
+                const _NoticeCard(
                   icon: Icons.wifi_off_outlined,
-                  title: '离线草稿可继续编辑',
-                  text:
-                      '服务器暂时不可用，已打开本机草稿。保存时会再次尝试联网，失败也不会丢掉文字。'
-                      '\n${widget.offlineError}',
+                  title: '暂时无法连接',
+                  text: '可继续编辑草稿，保存时会再试。',
                 ),
               if (state.recoveredLocalDraft)
                 const _NoticeCard(
                   icon: Icons.restore,
-                  title: '已恢复本机草稿',
-                  text: '下面显示的是上次未成功保存到服务器的文字；保存成功后会清除本机草稿。',
+                  title: '已恢复未保存的草稿',
+                  text: '下面是上次未保存成功的文字，保存成功后会清除本机草稿。',
                 ),
               const SizedBox(height: 12),
               Card(
@@ -346,17 +347,6 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                           Text(
                             '本次记录',
                             style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const Spacer(),
-                          InfoPill(
-                            label:
-                                state.draftBaseVersion != null &&
-                                    state.draftBaseVersion !=
-                                        state.mine?.version
-                                ? '本地基于 v${state.draftBaseVersion}'
-                                : state.mine == null
-                                ? '新备注'
-                                : '服务器 v${state.mine!.version}',
                           ),
                         ],
                       ),
@@ -424,7 +414,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                             const SizedBox(width: 8),
                             const Expanded(
                               child: Text(
-                                '备注已在其他设备更新',
+                                '内容已更新',
                                 style: TextStyle(
                                   fontSize: 17,
                                   fontWeight: FontWeight.w700,
@@ -432,17 +422,12 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                                 ),
                               ),
                             ),
-                            if (server != null)
-                              InfoPill(
-                                label: '服务器 v${server.version}',
-                                color: const Color(0xFFAD6A12),
-                              ),
                           ],
                         ),
                         const SizedBox(height: 10),
-                        Text(
-                          conflict.message,
-                          style: const TextStyle(
+                        const Text(
+                          '这条备注已在其他设备更新，请选择使用哪份内容。',
+                          style: TextStyle(
                             fontSize: 15,
                             height: 1.5,
                             color: Color(0xFF6F4B18),
@@ -450,7 +435,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          '编辑框里的本地文字已保留并写入本机草稿，不会静默丢失。',
+                          '当前输入已保留，可稍后恢复。',
                           style: TextStyle(
                             fontSize: 14,
                             height: 1.5,
@@ -460,7 +445,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                         if (server != null) ...[
                           const SizedBox(height: 16),
                           const Text(
-                            '服务器上的三段内容',
+                            '最新内容',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
@@ -474,13 +459,13 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                             onPressed: _saving
                                 ? null
                                 : () => _save(baseVersion: server.version),
-                            child: const Text('保留本地，基于服务器版本重试'),
+                            child: const Text('保留当前输入并保存'),
                           ),
                           const SizedBox(height: 8),
                           OutlinedButton(
                             key: const Key('adoptServerButton'),
                             onPressed: _adoptServerVersion,
-                            child: const Text('载入服务器版本（本地另存备份）'),
+                            child: const Text('使用最新内容'),
                           ),
                         ] else
                           TextButton(
@@ -497,10 +482,10 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.inventory_2_outlined),
-                    title: const Text('本机有冲突备份'),
+                    title: const Text('已保存未提交的草稿'),
                     subtitle: Text(
                       '保存于 ${monthDayZh(state.backup!.savedAt)} '
-                      '${timeZh(state.backup!.savedAt)}，可恢复后继续合并。',
+                      '${timeZh(state.backup!.savedAt)}，可恢复后继续编辑。',
                     ),
                     trailing: TextButton(
                       onPressed: _restoreBackup,
@@ -512,7 +497,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
               if (published != null) ...[
                 const SizedBox(height: 14),
                 _PublishedCard(
-                  title: '我的已发布版本',
+                  title: '已共享的备注',
                   note: published,
                   publishedAt: state.mine?.publishedAt,
                 ),
@@ -525,13 +510,13 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '同课教师已发布',
+                        '同课老师的备注',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 10),
                       if (state.bundle?.others.isEmpty ?? true)
                         const Text(
-                          '暂无同课教师发布记录。',
+                          '暂无同课老师的备注。',
                           style: TextStyle(fontSize: 15, color: appMuted),
                         )
                       else
@@ -550,7 +535,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '上次课共享记录',
+                          '上次共享的备注',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 4),
@@ -563,7 +548,7 @@ class _NoteEditorState extends ConsumerState<_NoteEditor> {
                         const SizedBox(height: 10),
                         if (state.bundle!.previous!.notes.isEmpty)
                           const Text(
-                            '上次课没有共享备注。',
+                            '上次课没有共享的备注。',
                             style: TextStyle(fontSize: 15, color: appMuted),
                           )
                         else
@@ -608,7 +593,7 @@ class _NoteField extends StatelessWidget {
       key: fieldKey,
       controller: controller,
       readOnly: readOnly,
-      minLines: 2,
+      minLines: 1,
       maxLines: 6,
       maxLength: 5000,
       textInputAction: TextInputAction.newline,
@@ -901,7 +886,7 @@ class _ActionBar extends StatelessWidget {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('发布'),
+                    : const Text('共享备注'),
               ),
             ),
           ],

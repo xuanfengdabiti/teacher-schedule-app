@@ -162,7 +162,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
   Future<void> _submit() async {
     final option = _selected;
     if (option == null || option.startAt == null) {
-      showCollabError(context, const ApiException(message: '请先选择可用或待核验的时段。'));
+      showCollabError(context, const ApiException(message: '请先选择可用或需确认的时段。'));
       return;
     }
     final reason = _reason.text.trim();
@@ -190,7 +190,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
       }
       setState(() => _submitting = false);
       final verification = item.needsVerification
-          ? '目标数据不完整，申请已标记为待教务核验。'
+          ? '目标课表信息不全，申请已标记为需教务确认。'
           : '申请已提交给教务。';
       await showDialog<void>(
         context: context,
@@ -295,7 +295,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '先在上方选择可用或待核验时段',
+                        '先在上方选择可用或需确认时段',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
@@ -324,7 +324,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                     if (option.isUnverified) ...[
                       const SizedBox(width: 6),
                       CollabStatusPill(
-                        label: '待核验',
+                        label: '需确认',
                         color: rescheduleEligibilityColor('unverified'),
                       ),
                     ],
@@ -405,10 +405,11 @@ class _ReschedulePageState extends State<ReschedulePage> {
                   ],
                 ),
               ),
-              CollabStatusPill(
-                label: data.complete ? '数据完整' : '数据不完整',
-                color: data.complete ? appMint : const Color(0xFFB7791F),
-              ),
+              if (!data.complete)
+                const CollabStatusPill(
+                  label: '部分安排待确认',
+                  color: Color(0xFFB7791F),
+                ),
             ],
           ),
           const SizedBox(height: 6),
@@ -440,7 +441,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
           ),
           const SizedBox(height: 12),
           Text(
-            '可用 $available · 待核验 $unverified · 已知冲突 $conflicts',
+            '可用 $available · 需确认 $unverified · 已知冲突 $conflicts',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           if (_classroomFilter.isNotEmpty)
@@ -480,7 +481,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
       ),
       (
         key: 'unverified',
-        title: '待核验时段',
+        title: '需确认时段',
         items: options.where((item) => item.isUnverified).toList(),
       ),
       (
@@ -629,14 +630,14 @@ class _OptionCard extends StatelessWidget {
               if (missing.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
-                  '缺少数据：${missing.join('、')}',
+                  '还缺：${missing.join('、')}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               if (option.isUnverified) ...[
                 const SizedBox(height: 8),
                 Text(
-                  '该时段数据不完整，提交后需要教务核验。',
+                  '该时段课表信息不全，提交后需要教务确认。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

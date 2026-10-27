@@ -160,7 +160,7 @@ class _NotificationListPageState extends State<NotificationListPage> {
                 children: [
                   Expanded(
                     child: Text(
-                      item.title,
+                      item.displayTitle,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -171,10 +171,13 @@ class _NotificationListPageState extends State<NotificationListPage> {
                 ],
               ),
               const SizedBox(height: 10),
-              Text(item.body, style: Theme.of(context).textTheme.bodyLarge),
+              Text(
+                item.displayBody,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
               const SizedBox(height: 12),
               Text(
-                '${fullDateTimeLabel(item.createdAt)} · ${item.type}',
+                fullDateTimeLabel(item.createdAt),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -309,7 +312,7 @@ class _NotificationCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        item.title,
+                        item.displayTitle,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
                               fontWeight: item.isRead
@@ -327,7 +330,7 @@ class _NotificationCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.body,
+                  item.displayBody,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,

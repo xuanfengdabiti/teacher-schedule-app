@@ -26,8 +26,9 @@ class _AccountStatusPageState extends ConsumerState<AccountStatusPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('检查失败：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ApiException.fromUnknown(error).message)),
+        );
       }
     } finally {
       if (mounted) {

@@ -78,7 +78,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = '登录失败：$error');
+        setState(() => _error = ApiException.fromUnknown(error).message);
       }
     } finally {
       if (mounted) {
@@ -365,7 +365,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             color: appTeal,
                           ),
                           title: const Text(
-                            '服务器设置',
+                            '连接设置',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -390,20 +390,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                               keyboardType: TextInputType.url,
                               autocorrect: false,
                               decoration: const InputDecoration(
-                                labelText: 'API 地址',
+                                labelText: '连接地址',
                                 hintText: 'http://192.168.1.10:18000/api/v1',
                               ),
                               onChanged: (_) => setState(() {}),
                               validator: (value) {
                                 if ((value?.trim() ?? '').isEmpty) {
-                                  return '请填写服务地址。';
+                                  return '请填写连接地址。';
                                 }
                                 return null;
                               },
                             ),
                             const SizedBox(height: 10),
                             const Text(
-                              'Android 模拟器默认 10.0.2.2；真机请填电脑局域网 IP。地址需包含 /api/v1。',
+                              'Android 模拟器默认使用 10.0.2.2；真机请填电脑的局域网地址。地址以 /api/v1 结尾。',
                               style: TextStyle(
                                 fontSize: 13,
                                 height: 1.45,

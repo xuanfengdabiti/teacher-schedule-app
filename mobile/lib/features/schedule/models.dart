@@ -102,6 +102,7 @@ class Session {
     this.leadTeacherName,
     this.termId,
     this.termCode,
+    this.previousNotePreview = '',
   });
 
   final String id;
@@ -133,6 +134,11 @@ class Session {
   final String? termId;
   final String? termCode;
 
+  /// Concise summary supplied with schedule reads. Empty when unavailable.
+  final String previousNotePreview;
+
+  bool get hasPreviousNote => previousNotePreview.trim().isNotEmpty;
+
   String get periodsLabel =>
       startPeriod == endPeriod ? '$startPeriod节' : '$startPeriod-$endPeriod节';
 
@@ -145,7 +151,7 @@ class Session {
     'cancelled' => '已停课',
     'completed' => '已完成',
     'moved' => '已调课',
-    _ => status,
+    _ => '其他状态',
   };
 
   factory Session.fromJson(Map<String, dynamic> json) {
@@ -211,6 +217,8 @@ class Session {
           : null,
       termId: termJson is Map ? jsonString(jsonMap(termJson)['id']) : null,
       termCode: termJson is Map ? jsonString(jsonMap(termJson)['code']) : null,
+      previousNotePreview:
+          jsonString(json['previous_note_preview'])?.trim() ?? '',
     );
   }
 }

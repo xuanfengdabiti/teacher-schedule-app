@@ -247,7 +247,7 @@ class _RequestCard extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: CollabNotice(
-                text: '该申请包含待核验时段，需要教务进一步确认；提交不代表已批准。',
+                text: '该申请包含需确认时段，需要教务进一步确认；提交不代表已批准。',
                 icon: Icons.fact_check_outlined,
               ),
             ),

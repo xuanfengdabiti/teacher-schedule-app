@@ -134,7 +134,7 @@ class _DetailBody extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Text(
-                '仅该课次实际授课教师可编辑教学备注和办理教学事项。',
+                '由这节课的授课教师填写备注和教学事项。',
                 style: TextStyle(fontSize: 15, color: appMuted),
               ),
             ),
@@ -199,7 +199,7 @@ class _DetailBody extends StatelessWidget {
                   if (hasLeadTeacher)
                     _InfoRow(
                       icon: Icons.star_outline,
-                      label: '主讲教师',
+                      label: '负责人',
                       value: session.leadTeacherName!,
                       last: true,
                     ),
@@ -271,7 +271,7 @@ class _SessionActions extends StatelessWidget {
                   ),
                 ),
                 icon: const Icon(Icons.timelapse),
-                label: const Text('完成学时'),
+                label: const Text('登记学时'),
               ),
             ),
           ],

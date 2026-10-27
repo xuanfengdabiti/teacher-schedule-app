@@ -63,14 +63,14 @@ class TeachingPlanController extends ChangeNotifier {
         baseVersion: baseVersion,
         items: items,
       );
-      notice = '教学计划已保存，进度以服务端返回为准。';
+      notice = '教学计划已保存。';
       return const PlanSaveResult(ok: true, message: '教学计划已保存。');
     } on ApiException catch (value) {
       if (value.statusCode == 409) {
         return PlanSaveResult(
           ok: false,
           conflict: true,
-          message: '计划已在其他设备更新。本地修改仍保留，请刷新后再合并。',
+          message: '计划已更新。当前输入仍保留，可刷新查看最新内容。',
         );
       }
       error = value.message;
@@ -154,7 +154,7 @@ class CompletionController extends ChangeNotifier {
     _notify();
     try {
       detail = await api.submitCompletion(sessionId, request);
-      notice = '授课状态已更新，服务端进度已刷新。';
+      notice = '授课记录已更新。';
       return CompletionSubmitResult(
         ok: true,
         message: request.action == CompletionAction.revert
@@ -166,7 +166,7 @@ class CompletionController extends ChangeNotifier {
         return CompletionSubmitResult(
           ok: false,
           conflict: true,
-          message: '课次已在其他设备更新。当前输入仍保留，请刷新服务端状态后再提交。',
+          message: '授课记录已更新。当前输入仍保留，可刷新查看最新内容。',
         );
       }
       return CompletionSubmitResult(ok: false, message: value.message);
@@ -295,8 +295,8 @@ class HandoffDetailController extends ChangeNotifier {
       if (readOnOpen && detail?.readAt == null) {
         try {
           detail = await api.markHandoffRead(handoffId);
-        } on Object catch (value) {
-          readError = '读取状态未能同步：${ApiException.fromUnknown(value).message}';
+        } on Object {
+          readError = '暂时无法标记为已读，可稍后刷新重试。';
         }
       }
     } on Object catch (value) {
@@ -433,13 +433,13 @@ class HandoffComposeController extends ChangeNotifier {
       return const HandoffAction(ok: false, message: '正在发送，请稍候。');
     }
     if (selectedRecipientIds.isEmpty) {
-      return const HandoffAction(ok: false, message: '请至少选择一位接收人。');
+      return const HandoffAction(ok: false, message: '请至少选择一位接收老师。');
     }
     if (content.trim().isEmpty) {
       return const HandoffAction(ok: false, message: '请填写交接内容。');
     }
     if (offeringId.isEmpty) {
-      return const HandoffAction(ok: false, message: '未取得课程开设信息，请重新加载。');
+      return const HandoffAction(ok: false, message: '暂时无法加载课程信息，请重试。');
     }
     submitting = true;
     error = null;

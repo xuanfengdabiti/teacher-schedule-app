@@ -28,6 +28,21 @@ class _WeekPageState extends ConsumerState<WeekPage> {
     });
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final selectedDate = ref.read(scheduleControllerProvider).selectedDate;
+    if (ref.read(scheduleControllerProvider).weekFor(selectedDate) == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref
+              .read(scheduleControllerProvider.notifier)
+              .ensureWeek(selectedDate);
+        }
+      });
+    }
+  }
+
   Future<void> _pickDate() async {
     final state = ref.read(scheduleControllerProvider);
     final picked = await showDatePicker(
@@ -49,6 +64,15 @@ class _WeekPageState extends ConsumerState<WeekPage> {
     final state = ref.watch(scheduleControllerProvider);
     final selectedDate = state.selectedDate;
     final weekAsync = state.selectedWeek;
+    if (weekAsync == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref
+              .read(scheduleControllerProvider.notifier)
+              .ensureWeek(selectedDate);
+        }
+      });
+    }
     final calendar = ref.watch(termCalendarProvider).value;
     final week = weekAsync?.value;
     final sessions = week?.sessionsOn(selectedDate) ?? const <Session>[];
@@ -236,7 +260,7 @@ class _WeekContent extends StatelessWidget {
         detail: wholeWeekEmpty
             ? (week?.termId == null
                   ? '这一周不在学期教学周内。'
-                  : '若学期已开始但一直为空，可能尚未导入课表，请联系教务。')
+                  : '如果学期已经开始却一直没有课程，请联系教务确认。')
             : '可以点上面的日期查看本周其他课程。',
         icon: wholeWeekEmpty
             ? Icons.event_busy_outlined

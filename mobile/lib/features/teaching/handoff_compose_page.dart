@@ -109,7 +109,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
         actions: [
           IconButton(
             key: const Key('handoffComposeRefreshButton'),
-            tooltip: '重新读取预填',
+            tooltip: '刷新',
             onPressed: _controller.loading ? null : _load,
             icon: const Icon(Icons.refresh),
           ),
@@ -162,7 +162,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
 
   Widget _buildBody(HandoffPrefill? prefill) {
     if (prefill == null && _controller.loading) {
-      return const LoadingView(message: '正在读取进度交接预填…');
+      return const LoadingView(message: '正在加载…');
     }
     if (prefill == null && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _load);
@@ -275,7 +275,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                     const Spacer(),
                     if (prefill.noteId != null &&
                         prefill.notePublishedVersion != null)
-                      const TeachingStatusPill(label: '已带入上次发布内容'),
+                      const TeachingStatusPill(label: '已带入备注'),
                   ],
                 ),
                 const SizedBox(height: 8),

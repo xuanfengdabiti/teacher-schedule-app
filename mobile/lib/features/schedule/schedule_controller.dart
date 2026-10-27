@@ -99,6 +99,12 @@ class ScheduleController extends Notifier<ScheduleState> {
   Future<void> refreshWeek(DateTime date) async {
     await ensureWeek(date, force: true);
   }
+
+  /// Notes were saved successfully. Drop cached weeks so the visible schedule
+  /// reloads its server-provided previews through the normal page lifecycle.
+  void invalidateWeekCache() {
+    state = state.copyWith(weeks: const {});
+  }
 }
 
 final scheduleControllerProvider =

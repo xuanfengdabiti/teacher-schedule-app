@@ -7,9 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../../app/theme.dart';
 import '../../core/json.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
 import '../collaboration/classroom_usage_page.dart';
+import '../collaboration/collaboration_models.dart';
 import '../collaboration/inquiry_detail_page.dart';
 import '../collaboration/notification_list_page.dart';
 import '../collaboration/reschedule_requests_page.dart';
@@ -32,6 +34,19 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(scheduleControllerProvider.notifier).ensureToday();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = ref.read(scheduleControllerProvider);
+    if (state.weekFor(DateTime.now()) == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(scheduleControllerProvider.notifier).ensureToday();
+        }
+      });
+    }
   }
 
   void _openNotificationObject(String objectType, String objectId) {
@@ -108,8 +123,9 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法读取消息详情：$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ApiException.fromUnknown(error).message)),
+        );
       }
       return;
     }
@@ -122,13 +138,14 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       return;
     }
     final message = match;
+    final notification = NotificationItem.fromJson(message);
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(message['title']?.toString() ?? '消息详情'),
+        title: Text(notification.displayTitle),
         content: SingleChildScrollView(
           child: SelectableText(
-            message['body']?.toString() ?? '',
+            notification.displayBody,
             style: const TextStyle(fontSize: 16, height: 1.5),
           ),
         ),
@@ -147,6 +164,13 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final today = DateTime.now();
     final state = ref.watch(scheduleControllerProvider);
     final weekAsync = state.weekFor(today);
+    if (weekAsync == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref.read(scheduleControllerProvider.notifier).ensureToday();
+        }
+      });
+    }
     final calendar = ref.watch(termCalendarProvider).value;
     final sessions = weekAsync?.value?.sessionsOn(today) ?? const <Session>[];
     final hasOtherCoursesThisWeek =
@@ -224,7 +248,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                       ? '当前日期不在学期的教学周内。'
                       : hasOtherCoursesThisWeek
                       ? '今天没有课；本周其他日期有课程，可查看本周课表。'
-                      : '若学期已开始且一直为空，可能尚未导入课表，请联系教务。',
+                      : '如果学期已经开始却一直没有课程，请联系教务确认。',
                   action: FilledButton.tonalIcon(
                     key: const Key('openWeekButton'),
                     onPressed: () => context.go('/week'),

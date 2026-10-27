@@ -22,6 +22,8 @@ class _ContractServer {
   int sessionListCalls = 0;
   int meCalls = 0;
   final List<Map<String, dynamic>> savedDraftBodies = [];
+  String previousNotePreview = '';
+  int notesReadCalls = 0;
 
   String get baseUrl => 'http://example.test/api/v1/';
 
@@ -90,6 +92,7 @@ class _ContractServer {
       'is_moved': false,
       'origin_teaching_date': null,
       'version': 3,
+      'previous_note_preview': previousNotePreview,
     };
   }
 
@@ -166,6 +169,7 @@ class _ContractServer {
     }
     if (path.contains('/sessions/session-1')) {
       if (path.endsWith('/notes/')) {
+        notesReadCalls++;
         return jsonResponse({
           'mine': null,
           'others': <Object>[],
@@ -279,6 +283,9 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.today_outlined));
     await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('previous-note-session-1')), findsNothing);
+    expect(server.notesReadCalls, 0, reason: '课表卡片不应逐卡请求备注');
+
     await tester.tap(sessionCard);
     await _pumpUntil(tester, find.text('课程信息'), reason: '未进入课程详情');
 
@@ -307,6 +314,23 @@ void main() {
     expect(body['client_mutation_id'], isA<String>());
     expect((body['client_mutation_id'] as String).length, 32);
     expect(find.text('草稿已保存。'), findsWidgets);
+
+    // The server now supplies a summary for the next schedule response.
+    server.previousNotePreview = '下次讲证据链审查，带一个案例，并请学生提前阅读补充材料后课堂上讨论。';
+    await tester.tap(find.byType(BackButton));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byType(BackButton));
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('previous-note-session-1')),
+      reason: '保存返回后课表未显示上次备注',
+    );
+
+    final preview = find.textContaining('上次备注：');
+    expect(preview, findsOneWidget);
+    expect(tester.widget<Text>(preview).maxLines, 2, reason: '摘要最多两行');
+    expect(server.sessionListCalls, 2, reason: '保存后应重取一次周信息');
+    expect(server.notesReadCalls, 1, reason: '仅备注页请求一次，列表没有逐卡备注请求');
 
     final authHeader = server.adapter.requests
         .firstWhere((request) => request.path.endsWith('/sessions/'))

@@ -180,16 +180,16 @@ class _CompletionPageState extends State<CompletionPage> {
     final reload = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('课次版本已变化'),
-        content: Text('$message\n\n当前输入的学时和专题分配仍保留，不会自动覆盖。'),
+        title: const Text('授课记录已更新'),
+        content: Text('$message\n\n当前输入仍保留，不会自动覆盖。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('保留输入'),
+            child: const Text('保留当前输入'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('载入服务器状态'),
+            child: const Text('使用最新内容'),
           ),
         ],
       ),
@@ -205,12 +205,12 @@ class _CompletionPageState extends State<CompletionPage> {
           await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
-              title: const Text('刷新会重置输入'),
-              content: const Text('当前填写的学时、专题分配和原因将被服务端最新状态替换。'),
+              title: const Text('刷新会清空当前输入'),
+              content: const Text('当前填写的学时、专题分配和原因会被最新内容替换。'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, false),
-                  child: const Text('保留输入'),
+                  child: const Text('保留当前输入'),
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(context, true),
@@ -252,7 +252,7 @@ class _CompletionPageState extends State<CompletionPage> {
 
   Widget _buildBody(CompletionDetail? detail) {
     if (detail == null && _controller.loading) {
-      return const LoadingView(message: '正在读取课次完成信息…');
+      return const LoadingView(message: '正在加载…');
     }
     if (detail == null && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _load);
@@ -293,7 +293,7 @@ class _CompletionPageState extends State<CompletionPage> {
             ),
           ],
           const SizedBox(height: 12),
-          const TeachingNotice(text: '保存备注不会自动确认授课完成。完成、更正和撤销都以本页提交的服务端结果为准。'),
+          const TeachingNotice(text: '请在授课结束后登记学时。'),
           const SizedBox(height: 12),
           Card(
             child: Padding(

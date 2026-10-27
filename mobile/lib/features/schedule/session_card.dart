@@ -128,6 +128,44 @@ class SessionCard extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (session.hasPreviousNote) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          key: ValueKey('previous-note-${session.id}'),
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(8, 6, 8, 7),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF2F7F5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(top: 1),
+                                child: Icon(
+                                  Icons.sticky_note_2_outlined,
+                                  size: 15,
+                                  color: appTeal,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  '上次备注：${session.previousNotePreview}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    height: 1.35,
+                                    color: appMuted,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

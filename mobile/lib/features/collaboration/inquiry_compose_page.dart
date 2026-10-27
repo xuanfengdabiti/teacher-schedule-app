@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../shared/status_views.dart';
 import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
@@ -76,7 +77,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   Future<void> _loadCandidates({bool keepData = false}) async {
     final rangeError = _rangeError;
     if (rangeError != null) {
-      showCollabError(context, Exception(rangeError));
+      showCollabError(context, ApiException(message: rangeError));
       return;
     }
     final requestNo = ++_candidatesRequestNo;
@@ -164,16 +165,16 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   Future<void> _submit() async {
     final description = _description.text.trim();
     if (description.isEmpty) {
-      showCollabError(context, Exception('请填写物品描述。'));
+      showCollabError(context, ApiException(message: '请填写物品描述。'));
       return;
     }
     if (_selected.isEmpty) {
-      showCollabError(context, Exception('请至少选择一位接收教师。'));
+      showCollabError(context, ApiException(message: '请至少选择一位接收教师。'));
       return;
     }
     final rangeError = _rangeError;
     if (rangeError != null) {
-      showCollabError(context, Exception(rangeError));
+      showCollabError(context, ApiException(message: rangeError));
       return;
     }
     setState(() => _submitting = true);
@@ -313,7 +314,9 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                           child: LoadingView(message: '正在查找相关教师…'),
                         )
                       : CollabErrorView(
-                          error: _candidatesError ?? Exception('没有拿到失物询问候选。'),
+                          error:
+                              _candidatesError ??
+                              ApiException(message: '暂时无法加载接收老师，请重试。'),
                           onRetry: () => _loadCandidates(),
                         )
                 else if (candidates.candidates.isEmpty)

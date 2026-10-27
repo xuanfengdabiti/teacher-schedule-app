@@ -40,16 +40,21 @@ class ApiException implements Exception {
           .expand((messages) => messages)
           .where((message) => message.trim().isNotEmpty)
           .firstOrNull;
-      final message =
-          _firstString(body['detail']) ??
-          _firstString(body['non_field_errors']) ??
-          fieldMessage ??
-          _statusMessage(status);
+      final code = _firstString(body['code']);
+      final message = _friendlyMessage(
+        code: code,
+        serverMessage:
+            _firstString(body['detail']) ??
+            _firstString(body['non_field_errors']) ??
+            fieldMessage,
+        status: status,
+        fieldMessage: fieldMessage,
+      );
       final current = body['current'];
       return ApiException(
         message: message,
         statusCode: status,
-        code: _firstString(body['code']),
+        code: code,
         fieldErrors: fields,
         current: current is Map ? Map<String, dynamic>.from(current) : null,
         isUnauthorized: status == 401,
@@ -69,24 +74,105 @@ class ApiException implements Exception {
     if (error is DioException) {
       return ApiException.fromDio(error);
     }
-    final text = error.toString().replaceFirst('Exception: ', '');
-    return ApiException(message: text.isEmpty ? '请求失败，请稍后重试。' : text);
+    return const ApiException(message: '操作没有成功，请稍后重试。');
+  }
+
+  static String _friendlyMessage({
+    required String? code,
+    required String? serverMessage,
+    required int? status,
+    required String? fieldMessage,
+  }) {
+    final shortMessage = _shortCodeMessage(code);
+    if (shortMessage != null) {
+      return shortMessage;
+    }
+
+    final readable = (serverMessage ?? '').trim();
+    if (code == 'INVALID_NOTE' && _looksTechnical(readable)) {
+      return _codeFallbackMessage(code)!;
+    }
+    final cleaned = _plainWording(readable);
+    if (cleaned.isNotEmpty && !_looksTechnical(cleaned)) {
+      return cleaned;
+    }
+    if (fieldMessage != null) {
+      final cleanedField = _plainWording(fieldMessage);
+      if (cleanedField.isNotEmpty && !_looksTechnical(cleanedField)) {
+        return cleanedField;
+      }
+    }
+    final mapped = _codeFallbackMessage(code);
+    if (mapped != null) {
+      return mapped;
+    }
+    return _statusMessage(status);
+  }
+
+  static String? _shortCodeMessage(String? code) {
+    return switch (code) {
+      'NOTE_VERSION_CONFLICT' => '备注已在其他设备更新，请核对后再保存。',
+      'MUTATION_KEY_REUSED' => '这次保存重复提交了，请稍后重试。',
+      'NOTHING_TO_PUBLISH' => '请填写备注',
+      _ => null,
+    };
+  }
+
+  /// Translate a few fixed backend phrases without touching names or values.
+  static String _plainWording(String text) {
+    if (text.isEmpty) {
+      return text;
+    }
+    return text
+        .replaceFirst('课程开设不存在或不在本人可见范围。', '没有找到对应课程。')
+        .replaceFirst('对象不存在或不在本人可见范围。', '没有找到对应内容。')
+        .replaceFirst('items 必须是数组。', '内容格式有误，请检查后重试。');
+  }
+
+  static String? _codeFallbackMessage(String? code) {
+    return switch (code) {
+      'INVALID_NOTE' => '这条备注暂时无法引用，请刷新后重试。',
+      'INVALID_PLAN' => '教学计划内容有误，请检查后重试。',
+      'INVALID_COMPLETION' => '学时登记内容有误，请检查后重试。',
+      'NOT_OFFERING_TEACHER' => '当前账号不能操作这门课程。',
+      'NOT_SESSION_TEACHER' => '只有这节课的授课教师可以操作。',
+      'NOT_PLAN_OWNER' => '只有课程负责人可以保存教学计划。',
+      'PLAN_VERSION_CONFLICT' ||
+      'SESSION_VERSION_CONFLICT' => '内容已在别处更新，请刷新后再试。',
+      _ => null,
+    };
+  }
+
+  static bool _looksTechnical(String text) {
+    final lower = text.toLowerCase();
+    return text.contains(RegExp(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-')) ||
+        lower.contains('exception') ||
+        lower.contains('dioexception') ||
+        lower.contains('socketexception') ||
+        lower.contains('formatexception') ||
+        lower.contains('client_mutation') ||
+        lower.contains('base_version') ||
+        lower.contains('due_date') ||
+        lower.contains('发布版本') ||
+        lower.contains('items 必须') ||
+        lower.contains('items=') ||
+        lower.contains('items:');
   }
 
   static String _statusMessage(int? status) {
     if (status == null) {
-      return '网络请求失败，请检查服务地址和网络。';
+      return '连接没有成功，请检查连接设置和网络。';
     }
     if (status >= 500) {
-      return '服务器暂时无法处理请求（HTTP $status）。';
+      return '服务暂时不可用，请稍后重试。';
     }
     return switch (status) {
       400 => '提交内容有误，请检查后重试。',
       401 => '登录状态已失效，请重新登录。',
-      403 => '当前账号无权执行此操作。',
-      404 => '没有找到对应数据。',
-      409 => '数据已在别处更新，请刷新后再试。',
-      _ => '请求失败（HTTP $status）。',
+      403 => '当前账号不能执行此操作。',
+      404 => '没有找到对应内容。',
+      409 => '内容已在别处更新，请刷新后再试。',
+      _ => '操作没有成功，请稍后重试。',
     };
   }
 

@@ -122,7 +122,7 @@ void main() {
     expect(result.results.single.classroomCode, 'A101');
   });
 
-  testWidgets('空闲和待核验使用不同状态渲染', (tester) async {
+  testWidgets('空闲和需确认使用不同状态渲染', (tester) async {
     final api = _FakeApiClient(
       onGet: (path, _) async {
         expect(path, 'classrooms/availability/');
@@ -133,12 +133,12 @@ void main() {
     await _pumpPage(tester, FreeRoomsPage(api: api));
 
     expect(find.text('空闲 1'), findsOneWidget);
-    expect(find.text('待核验 1'), findsOneWidget);
+    expect(find.text('需确认 1'), findsOneWidget);
     expect(find.text('A101'), findsOneWidget);
     expect(find.text('B202'), findsOneWidget);
     expect(find.text('空闲'), findsOneWidget);
-    expect(find.text('待核验'), findsOneWidget);
-    expect(find.text('容量 40 · 数据不完整'), findsOneWidget);
+    expect(find.text('需确认'), findsOneWidget);
+    expect(find.text('容量 40 · 部分安排待确认'), findsOneWidget);
   });
 
   testWidgets('点击结果按查询日期打开教室记录', (tester) async {

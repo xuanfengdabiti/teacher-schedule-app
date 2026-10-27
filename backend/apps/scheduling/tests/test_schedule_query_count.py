@@ -45,10 +45,12 @@ def test_one_week_and_six_weeks_use_the_same_number_of_queries(
     generated_demo,
     django_assert_max_num_queries,
 ) -> None:
+    # Budget includes the one batched query for `previous_note_preview`; the
+    # number of cards must not add further queries.
     client = _client_for(generated_demo.teachers["0002"])
     teaching_class_id = generated_demo.offerings["OFF-DATA-2026A"].teaching_class_id
 
-    with django_assert_max_num_queries(6) as one_week:
+    with django_assert_max_num_queries(7) as one_week:
         one_week_response = client.get(
             _sessions_url(
                 date_from=date(2026, 10, 26),
@@ -56,7 +58,7 @@ def test_one_week_and_six_weeks_use_the_same_number_of_queries(
                 teaching_class_id=teaching_class_id,
             )
         )
-    with django_assert_max_num_queries(6) as six_weeks:
+    with django_assert_max_num_queries(7) as six_weeks:
         six_weeks_response = client.get(
             _sessions_url(
                 date_from=date(2026, 10, 5),
@@ -90,7 +92,7 @@ def test_each_schedule_read_endpoint_has_a_constant_query_budget(
         terms_response = client.get("/api/v1/terms/")
     with django_assert_max_num_queries(5) as calendar_queries:
         calendar_response = client.get(f"/api/v1/terms/{term.id}/calendar/")
-    with django_assert_max_num_queries(5) as detail_queries:
+    with django_assert_max_num_queries(6) as detail_queries:
         detail_response = client.get(f"/api/v1/sessions/{session.id}/")
     with django_assert_max_num_queries(6) as offerings_queries:
         offerings_response = client.get("/api/v1/offerings/")
@@ -108,5 +110,5 @@ def test_each_schedule_read_endpoint_has_a_constant_query_budget(
     )
     assert len(terms_queries.captured_queries) <= 3
     assert len(calendar_queries.captured_queries) <= 5
-    assert len(detail_queries.captured_queries) <= 5
+    assert len(detail_queries.captured_queries) <= 6
     assert len(offerings_queries.captured_queries) <= 6

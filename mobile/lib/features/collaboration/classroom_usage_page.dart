@@ -148,7 +148,7 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
       appBar: AppBar(title: const Text('教室记录')),
       body: data == null
           ? _loading
-                ? const LoadingView(message: '正在读取教室使用记录…')
+                ? const LoadingView(message: '正在读取教室记录…')
                 : CollabErrorView(error: _error!, onRetry: () => _load())
           : Column(
               children: [
@@ -225,10 +225,11 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
                   ],
                 ),
               ),
-              CollabStatusPill(
-                label: data.complete ? '覆盖完整' : '数据不完整',
-                color: data.complete ? appMint : const Color(0xFFB7791F),
-              ),
+              if (!data.complete)
+                const CollabStatusPill(
+                  label: '部分安排待确认',
+                  color: Color(0xFFB7791F),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -338,8 +339,6 @@ class _UsageEntryCard extends StatelessWidget {
               CollabDetailRow(label: '教学班', value: entry.teachingClass!),
           ],
           if (entry.kind == 'room_block') ...[
-            if (entry.blockCode != null)
-              CollabDetailRow(label: '占用代码', value: entry.blockCode!),
             if (entry.reason != null && entry.reason!.isNotEmpty)
               CollabDetailRow(label: '原因', value: entry.reason!),
           ],
@@ -376,7 +375,7 @@ class _UsageEntryCard extends StatelessWidget {
                         )
                       : Chip(
                           avatar: const Icon(Icons.person_outline, size: 17),
-                          label: Text('${teacher.name} · 联系方式不可见'),
+                          label: Text('${teacher.name} · 联系方式暂不可查看'),
                         ),
               ],
             ),
@@ -497,7 +496,7 @@ class _TeacherContactSheetState extends State<_TeacherContactSheet> {
                     ),
                   const SizedBox(height: 14),
                   _ContactRow(
-                    label: '电话（仅复制，不拨号）',
+                    label: '电话',
                     value: contact.phone,
                     status: contact.phoneStatus,
                     onCopy: contact.phone == null

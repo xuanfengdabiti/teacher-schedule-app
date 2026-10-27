@@ -109,7 +109,7 @@ class _HandoffListPageState extends State<HandoffListPage> {
 
   Widget _buildBody(List<Handoff> items) {
     if (items.isEmpty && _controller.loading) {
-      return const LoadingView(message: '正在读取进度交接…');
+      return const LoadingView(message: '正在加载…');
     }
     if (items.isEmpty && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _controller.load);
@@ -425,7 +425,7 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
 
   Widget _buildBody(Handoff? detail) {
     if (detail == null && _controller.loading) {
-      return const LoadingView(message: '正在读取交接详情…');
+      return const LoadingView(message: '正在加载…');
     }
     if (detail == null && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _load);
@@ -528,10 +528,10 @@ class _HandoffDetailPageState extends State<_HandoffDetailPage> {
                     value: teachingSessionText(detail.targetSession),
                   ),
                   _InfoRow(
-                    label: '关联上次发布',
+                    label: '关联备注',
                     value: detail.notePublishedVersion == null
                         ? '未关联'
-                        : '已关联上次发布内容',
+                        : '已关联共享备注',
                   ),
                 ],
               ),

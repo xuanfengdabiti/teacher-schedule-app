@@ -293,7 +293,7 @@ class NotesController extends Notifier<NotesState> {
         );
       }
       if (mine.draft.isBlank) {
-        return NoteActionResult.failure('三段内容都为空，不能发布。');
+        return NoteActionResult.failure('请填写备注');
       }
       final published = await _repository.publish(
         sessionId: sessionId,
@@ -316,7 +316,7 @@ class NotesController extends Notifier<NotesState> {
           recoveredLocalDraft: false,
         ),
       );
-      return NoteActionResult.success('备注已发布，同课教师可见。');
+      return NoteActionResult.success('已共享给同课老师。');
     } on NoteConflictException catch (error) {
       await _preserveLocal(text, mine?.version ?? state.effectiveBaseVersion);
       final savedMine = mine;
@@ -410,8 +410,13 @@ class NotesController extends Notifier<NotesState> {
     }
   }
 
-  String _message(Object error) =>
-      error is ApiException ? error.message : '请求失败：$error';
+  String _message(Object error) {
+    final message = error is ApiException ? error.message : '';
+    if (message.trim().isEmpty) {
+      return '暂时无法连接，请稍后重试。';
+    }
+    return message;
+  }
 }
 
 final notesControllerProvider = NotifierProvider.autoDispose

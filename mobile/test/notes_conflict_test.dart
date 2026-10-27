@@ -243,11 +243,11 @@ void main() {
     expect(find.byKey(const Key('coveredField')), findsOneWidget);
     for (var attempt = 0; attempt < 40; attempt++) {
       await tester.pump(const Duration(milliseconds: 25));
-      if (find.text('离线草稿可继续编辑').evaluate().isNotEmpty) {
+      if (find.text('暂时无法连接').evaluate().isNotEmpty) {
         break;
       }
     }
-    expect(find.text('离线草稿可继续编辑'), findsOneWidget);
+    expect(find.text('暂时无法连接'), findsOneWidget);
     final field = tester.widget<TextField>(
       find.byKey(const Key('coveredField')),
     );

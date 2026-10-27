@@ -110,8 +110,8 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
     return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('放弃未保存修改？'),
-            content: const Text('刷新会显示服务器上的计划，当前未保存的标题、学时和截止日期会丢失。'),
+            title: const Text('放弃未保存的修改？'),
+            content: const Text('刷新后会显示最新的计划，当前未保存的内容会丢失。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -119,7 +119,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('放弃并刷新'),
+                child: const Text('放弃修改'),
               ),
             ],
           ),
@@ -308,7 +308,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('删除这个专题？'),
-        content: Text('“${item.title}”将不再出现在计划中。已经有授课分配历史的专题，服务端会保留为归档项。'),
+        content: Text('“${item.title}”将不再出现在计划中。已有授课记录的专题会保留在已归档中。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -382,16 +382,16 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
     final reload = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('计划版本已变化'),
-        content: Text('$message\n\n可以保留当前输入，稍后手动合并；也可以载入服务器版本。'),
+        title: const Text('计划已更新'),
+        content: Text('$message\n\n可以保留当前输入，也可以使用最新内容。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('保留输入'),
+            child: const Text('保留当前输入'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('载入服务器版本'),
+            child: const Text('使用最新内容'),
           ),
         ],
       ),
@@ -431,7 +431,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
                   children: [
                     Expanded(
                       child: Text(
-                        _dirty ? '有未保存修改' : '已与服务端同步',
+                        _dirty ? '有未保存的修改' : '已保存',
                         style: TextStyle(
                           fontSize: 14,
                           color: _dirty ? const Color(0xFF8A5A0B) : appMuted,
@@ -463,7 +463,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
 
   Widget _buildBody(PlanBundle? bundle) {
     if (bundle == null && _controller.loading) {
-      return const LoadingView(message: '正在读取教学计划…');
+      return const LoadingView(message: '正在加载…');
     }
     if (bundle == null && _controller.error != null) {
       return ErrorView(message: _controller.error!, onRetry: _load);
@@ -533,7 +533,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      '先添加章节/专题和计划学时，保存后服务端会按截止日期计算进度。',
+                      '先添加专题和计划学时，保存后会按截止日期计算进度。',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 14, color: appMuted),
                     ),
@@ -636,7 +636,7 @@ class _TeachingPlanPageState extends State<TeachingPlanPage> {
                       key: ValueKey('archived-${item.id}'),
                       dense: true,
                       title: Text(item.title),
-                      subtitle: const Text('保留历史分配，不再参与新计划'),
+                      subtitle: const Text('保留已有记录，不再参与新计划'),
                       trailing: Text('${item.plannedHours} 学时'),
                     ),
                 ],
@@ -724,9 +724,7 @@ class _ProgressCard extends StatelessWidget {
               TeachingNotice(
                 tone: TeachingNoticeTone.warning,
                 icon: Icons.schedule_outlined,
-                text:
-                    '按服务端计算，已到期专题合计还差 ${progress.behindHours} 学时'
-                    '（提醒阈值 ${progress.behindThresholdHours} 学时）。',
+                text: '已到期专题还差 ${progress.behindHours} 学时。',
               ),
             ],
           ],

@@ -91,7 +91,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
   Future<void> _sendReply() async {
     final body = _replyBody.text.trim();
     if (_replyResult == 'other' && body.isEmpty) {
-      showCollabError(context, Exception('选择“其他说明”时必须填写文字。'));
+      showCollabError(context, ApiException(message: '选择“其他说明”时必须填写文字。'));
       return;
     }
     setState(() => _busy = true);
@@ -199,7 +199,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
                         if (_readWarning != null) ...[
                           const SizedBox(height: 8),
                           CollabNotice(
-                            text: '已读状态未能同步：$_readWarning',
+                            text: '没能记录已读，可稍后刷新。',
                             icon: Icons.mark_email_unread_outlined,
                           ),
                         ],
@@ -211,7 +211,6 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
                           ),
                         CollabSectionTitle(
                           title: '回复记录',
-                          subtitle: '按时间追加，不覆盖之前的回复。',
                           trailing: CollabStatusPill(
                             label: '${item.replies.length} 条',
                             color: appMuted,
@@ -252,10 +251,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
                             ),
                           ),
                         ] else ...[
-                          CollabSectionTitle(
-                            title: '追加回复',
-                            subtitle: '回复会追加到历史，不修改之前内容。',
-                          ),
+                          CollabSectionTitle(title: '回复'),
                           _buildReplyForm(),
                         ],
                       ],
@@ -345,7 +341,7 @@ class _InquiryDetailPageState extends State<InquiryDetailPage> {
             key: const ValueKey('inquiry-reply-submit'),
             onPressed: _busy ? null : _sendReply,
             icon: const Icon(Icons.reply_outlined),
-            label: const Text('追加回复'),
+            label: const Text('回复'),
           ),
         ),
       ],

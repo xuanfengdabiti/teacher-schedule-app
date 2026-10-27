@@ -92,7 +92,7 @@ class AuthController extends Notifier<SessionState> {
         _set(SessionState.error(error.message));
       }
     } catch (error) {
-      _set(SessionState.error('恢复登录失败：$error'));
+      _set(SessionState.error(ApiException.fromUnknown(error).message));
     }
   }
 

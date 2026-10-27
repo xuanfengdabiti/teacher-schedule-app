@@ -26,7 +26,7 @@ class FeaturesPage extends ConsumerWidget {
         title: const Text('功能'),
         actions: [
           IconButton(
-            tooltip: '刷新开课列表',
+            tooltip: '刷新课程',
             onPressed: () => ref.invalidate(offeringsProvider),
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -68,7 +68,7 @@ class FeaturesPage extends ConsumerWidget {
               const SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
-                  child: LoadingView(message: '正在加载开课信息…'),
+                  child: LoadingView(message: '正在加载课程…'),
                 ),
               )
             else if (offerings.hasError && items.isEmpty)
@@ -84,8 +84,8 @@ class FeaturesPage extends ConsumerWidget {
             else if (items.isEmpty)
               const SliverToBoxAdapter(
                 child: EmptyView(
-                  title: '本学期暂无开课',
-                  detail: '当前学期没有本人任课或同教学班的开课记录。',
+                  title: '本学期暂无课程',
+                  detail: '当前学期没有本人任课或同教学班的课程。',
                   icon: Icons.menu_book_outlined,
                 ),
               )
@@ -146,71 +146,64 @@ class _QuickActions extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: _QuickTile(
-                key: const Key('freeRoomsEntry'),
-                icon: Icons.event_available_outlined,
-                label: '空教室查询',
-                onTap: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (context) => FreeRoomsPage(api: api),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickTile(
+                    key: const Key('freeRoomsEntry'),
+                    icon: Icons.event_available_outlined,
+                    label: '空教室查询',
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (context) => FreeRoomsPage(api: api),
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _QuickTile(
+                    key: const Key('handoffEntry'),
+                    icon: Icons.swap_horiz_rounded,
+                    label: '进度交接',
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (context) => HandoffListPage(api: api),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final width = (constraints.maxWidth - 10) / 2;
-                return Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    SizedBox(
-                      width: width,
-                      child: _QuickTile(
-                        key: const Key('handoffEntry'),
-                        icon: Icons.swap_horiz_rounded,
-                        label: '进度交接',
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (context) => HandoffListPage(api: api),
-                          ),
-                        ),
+            Row(
+              children: [
+                Expanded(
+                  child: _QuickTile(
+                    key: const Key('rescheduleRequestsEntry'),
+                    icon: Icons.published_with_changes,
+                    label: '调课记录',
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (context) => RescheduleRequestsPage(api: api),
                       ),
                     ),
-                    SizedBox(
-                      width: width,
-                      child: _QuickTile(
-                        key: const Key('rescheduleRequestsEntry'),
-                        icon: Icons.published_with_changes,
-                        label: '调课记录',
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                RescheduleRequestsPage(api: api),
-                          ),
-                        ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _QuickTile(
+                    key: const Key('classroomInquiryEntry'),
+                    icon: Icons.room_preferences_outlined,
+                    label: '教室与失物',
+                    onTap: () => Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (context) => ClassroomInquiryPage(api: api),
                       ),
                     ),
-                    SizedBox(
-                      width: width,
-                      child: _QuickTile(
-                        key: const Key('classroomInquiryEntry'),
-                        icon: Icons.room_preferences_outlined,
-                        label: '教室与失物',
-                        onTap: () => Navigator.of(context).push<void>(
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                ClassroomInquiryPage(api: api),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -240,24 +233,24 @@ class _QuickTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(15),
         onTap: onTap,
         child: SizedBox(
-          height: 82,
+          height: 96,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
+            padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(icon, size: 25, color: appTeal),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: appInk,
-                    ),
+                Icon(icon, size: 26, color: appTeal),
+                const Spacer(),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w600,
+                    color: appInk,
                   ),
                 ),
-                const Icon(Icons.chevron_right, size: 19, color: appMuted),
               ],
             ),
           ),
@@ -303,7 +296,7 @@ class _OfferingCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 InfoPill(
-                  label: offering.isAssigned ? '我任课' : '同教学班',
+                  label: offering.isAssigned ? '我任课' : '同班教师',
                   color: offering.isAssigned ? appTeal : appMuted,
                 ),
               ],
@@ -317,7 +310,7 @@ class _OfferingCard extends StatelessWidget {
               icon: Icons.timelapse,
               text:
                   '目标 ${offering.targetHours} 学时'
-                  '${offering.leadTeacherName.isEmpty ? '' : ' · 主讲 ${offering.leadTeacherName}'}',
+                  '${offering.leadTeacherName.isEmpty ? '' : ' · 负责人 ${offering.leadTeacherName}'}',
               last: true,
             ),
             const SizedBox(height: 14),

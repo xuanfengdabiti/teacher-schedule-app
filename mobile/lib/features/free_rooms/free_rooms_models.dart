@@ -59,7 +59,7 @@ class FreeRoomItem {
   bool get isAvailable => availability == 'available';
   bool get isUnverified => availability == 'unverified';
 
-  String get statusLabel => isAvailable ? '空闲' : '待核验';
+  String get statusLabel => isAvailable ? '空闲' : '需确认';
 
   String get location =>
       [campus, building, roomNo].where((part) => part.isNotEmpty).join(' · ');

@@ -290,18 +290,46 @@ class _SessionBlock extends StatelessWidget {
                   ),
                 ),
               ),
-              if (classroom.isNotEmpty) ...[
+              if (classroom.isNotEmpty || session.hasPreviousNote) ...[
                 const Spacer(),
-                Text(
-                  classroom,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 9.5,
-                    height: 1.1,
-                    color: appMuted,
+                if (classroom.isNotEmpty)
+                  Text(
+                    classroom,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 9.5,
+                      height: 1.1,
+                      color: appMuted,
+                    ),
                   ),
-                ),
+                if (session.hasPreviousNote)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Row(
+                      key: ValueKey('overview-note-${session.id}'),
+                      children: [
+                        const Icon(
+                          Icons.sticky_note_2_outlined,
+                          size: 9,
+                          color: appTeal,
+                        ),
+                        const SizedBox(width: 1),
+                        Expanded(
+                          child: Text(
+                            session.previousNotePreview,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 8.5,
+                              height: 1.05,
+                              color: appTeal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ],
           ),

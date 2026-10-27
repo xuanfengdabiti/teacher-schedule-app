@@ -85,21 +85,21 @@ String rescheduleStatusLabel(String status) => switch (status) {
   'approved' => '已批准',
   'rejected' => '已驳回',
   'withdrawn' => '已撤回',
-  _ => status,
+  _ => '未知状态',
 };
 
 String inquiryStatusLabel(String status) => switch (status) {
   'open' => '待回复',
   'replied' => '已回复',
   'closed' => '已结案',
-  _ => status,
+  _ => '未知状态',
 };
 
 String replyResultLabel(String result) => switch (result) {
   'not_seen' => '未见到',
   'in_custody' => '已保管',
   'other' => '其他说明',
-  _ => result,
+  _ => '其他说明',
 };
 
 String usageKindLabel(String kind) => switch (kind) {
@@ -107,33 +107,33 @@ String usageKindLabel(String kind) => switch (kind) {
   'cancelled_session' => '停课课次',
   'moved_out' => '已调出',
   'room_block' => '教室占用',
-  _ => kind,
+  _ => '其他安排',
 };
 
 String contactStatusLabel(String status) => switch (status) {
-  'visible' => '可见',
-  'not_provided' => '未提供',
-  'hidden' => '暂不可见',
-  _ => status,
+  'visible' => '可查看',
+  'not_provided' => '未填写',
+  'hidden' => '暂不可查看',
+  _ => '未知状态',
 };
 
 String coverageLabel(String value) => switch (value) {
   'calendar' => '校历与节次',
-  'teacher_assignments' => '任课范围与分工',
-  'teacher_schedule' => '教师全校排课',
-  'student_enrollments' => '实际选课名单',
-  'student_schedule' => '学生全校排课',
-  'classroom_schedule' => '教室课程占用',
-  'room_blocks' => '教室非课程占用',
-  'person_blocks' => '人员不可用',
-  _ => value,
+  'teacher_assignments' => '任课安排',
+  'teacher_schedule' => '教师课表',
+  'student_enrollments' => '学生选课名单',
+  'student_schedule' => '学生课表',
+  'classroom_schedule' => '教室排课',
+  'room_blocks' => '教室其他占用',
+  'person_blocks' => '教师时间安排',
+  _ => '其他资料',
 };
 
 String conflictCategoryLabel(String category) => switch (category) {
   'teacher' => '教师时间冲突',
   'student' => '学生冲突',
   'classroom' => '教室冲突',
-  _ => category,
+  _ => '其他冲突',
 };
 
 class RescheduleConflict {
@@ -162,8 +162,7 @@ class RescheduleConflict {
   }
 
   String get label {
-    final name =
-        courseName ?? (sessionId == null ? '' : '课次 ${shortId(sessionId!)}');
+    final name = courseName ?? '其他课程';
     final count = studentCount == null ? '' : '（$studentCount 人）';
     final detail = reason?.trim();
     if (detail != null && detail.isNotEmpty) {
@@ -207,9 +206,9 @@ class RescheduleOption {
 
   String get label => switch (eligibility) {
     'available' => '可用',
-    'unverified' => '待核验',
+    'unverified' => '需确认',
     'conflict' => '有冲突',
-    _ => eligibility,
+    _ => '需确认',
   };
 
   factory RescheduleOption.fromJson(Map<String, dynamic> json) {
@@ -836,6 +835,42 @@ class NotificationItem {
   final DateTime? createdAt;
   final DateTime? readAt;
   final bool isRead;
+
+  String get displayTitle => switch (type) {
+    'inquiry_received' => '收到失物询问',
+    'inquiry_replied' => '失物询问有回复',
+    'handoff_received' => '收到进度交接',
+    'handoff_acknowledged' => '进度交接已确认',
+    'handoff_check' => '请核对进度交接',
+    _ => title,
+  };
+
+  /// Old notifications may still use "协查/教学交接" in fixed system text.
+  /// Only replace those fixed fragments; keep the quoted user content intact.
+  String get displayBody {
+    var text = body;
+    if (type == 'inquiry_received') {
+      text = text
+          .replaceFirst('收到失物协查请求', '收到失物询问')
+          .replaceFirst('失物协查。', '失物询问。')
+          .replaceFirst(RegExp(r'的失物协查。'), '的失物询问。');
+    } else if (type == 'inquiry_replied') {
+      text = text
+          .replaceFirst('协查收到回复', '失物询问有回复')
+          .replaceFirst(RegExp(r'^协查'), '失物询问');
+    } else if (type == 'handoff_received') {
+      text = text
+          .replaceFirst('收到教学交接', '收到进度交接')
+          .replaceFirst('教学交接：', '进度交接：');
+    } else if (type == 'handoff_acknowledged') {
+      text = text
+          .replaceFirst('教学交接已确认', '进度交接已确认')
+          .replaceFirst('的教学交接。', '的进度交接。');
+    } else if (type == 'handoff_check') {
+      text = text.replaceFirst('交接《', '进度交接《');
+    }
+    return text;
+  }
 
   factory NotificationItem.fromJson(Map<String, dynamic> json) {
     return NotificationItem(

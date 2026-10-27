@@ -458,7 +458,7 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
             ],
             const SizedBox(height: 10),
             Text(
-              '请选择同一天的起止时间；待核验的教室需要进一步确认。',
+              '请选择同一天的起止时间；标记“需确认”的教室请进一步核实。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -500,7 +500,7 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
                         color: appMint,
                       ),
                       InfoPill(
-                        label: '待核验 ${result.unverifiedCount}',
+                        label: '需确认 ${result.unverifiedCount}',
                         color: const Color(0xFFB7791F),
                       ),
                       InfoPill(label: '共 ${result.count}', color: appMuted),
@@ -597,7 +597,7 @@ class _RoomCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = room.isAvailable ? appMint : const Color(0xFFB7791F);
-    final coverage = room.dataCompleteness == 'complete' ? '数据完整' : '数据不完整';
+    final coverage = room.dataCompleteness == 'complete' ? '' : ' · 部分安排待确认';
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -642,7 +642,7 @@ class _RoomCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     Text(
-                      '容量 ${room.capacity} · $coverage',
+                      '容量 ${room.capacity}$coverage',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
