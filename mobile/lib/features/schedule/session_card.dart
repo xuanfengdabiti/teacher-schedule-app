@@ -152,7 +152,7 @@ class SessionCard extends StatelessWidget {
                               const SizedBox(width: 5),
                               Expanded(
                                 child: Text(
-                                  '上次备注：${session.previousNotePreview}',
+                                  '备注：${session.previousNotePreview}',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(

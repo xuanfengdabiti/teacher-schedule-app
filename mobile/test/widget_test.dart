@@ -323,10 +323,10 @@ void main() {
     await _pumpUntil(
       tester,
       find.byKey(const ValueKey('previous-note-session-1')),
-      reason: '保存返回后课表未显示上次备注',
+      reason: '保存返回后课表未显示备注',
     );
 
-    final preview = find.textContaining('上次备注：');
+    final preview = find.textContaining('备注：');
     expect(preview, findsOneWidget);
     expect(tester.widget<Text>(preview).maxLines, 2, reason: '摘要最多两行');
     expect(server.sessionListCalls, 2, reason: '保存后应重取一次周信息');
