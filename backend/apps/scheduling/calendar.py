@@ -71,6 +71,7 @@ class PlannedSession:
     offering_id: UUID
     origin_teaching_date: date
     origin_period: int
+    week: int
     session_date: date
     start_period: int
     end_period: int
@@ -224,6 +225,7 @@ def plan_term_sessions(
                     offering_id=rule.offering_id,
                     origin_teaching_date=teaching_date,
                     origin_period=rule.start_period,
+                    week=week,
                     session_date=session_date,
                     start_period=rule.start_period,
                     end_period=rule.end_period,

@@ -6,14 +6,14 @@ import hashlib
 import json
 from collections import defaultdict
 from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 from apps.academics.models import TeacherProfile, TeachingAssignment, Term
-from apps.imports.models import ImportBatch, ImportStatus
+from apps.imports.models import ImportBatch, ImportDecision, ImportMode, ImportStatus
 from apps.imports.parsing import ImportIssue, ParseResult, make_issue, parse_files
 from apps.imports.projection import build_graph
 from apps.imports.projection.base import (
@@ -30,10 +30,10 @@ from apps.imports.projection.base import (
     display,
 )
 from apps.imports.projection.planning import PlanData, referenced_term_codes
+from apps.imports.reconcile import reconcile_sessions
 from apps.imports.storage import batch_file_entries, hash_named_contents
 from apps.imports.validation import validate_business_rows
 from apps.scheduling import selectors
-from apps.scheduling.models import SessionStatus
 from apps.teaching.models import TeachingPlan
 
 
@@ -104,17 +104,6 @@ def summary_for(graph: ImportGraph, plan: PlanData) -> dict[str, Any]:
         "error_counts": dict(sorted(status_counts[ERROR].items())),
         "expected_new_sessions": plan.expected_new,
     }
-
-
-def estimated_hours(graph: ImportGraph) -> dict[str, str]:
-    totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    for obj in graph.sessions.values():
-        session = obj.data
-        if obj.state == NEW and session.status == SessionStatus.COMPLETED and session.actual_hours is not None:
-            offering_code = obj.metadata.get("offering_code")
-            if offering_code:
-                totals[offering_code] += session.actual_hours
-    return {code: str(value) for code, value in sorted(totals.items())}
 
 
 def row_counts(
@@ -337,6 +326,60 @@ def preview_fingerprint(
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def sync_import_decisions(batch: ImportBatch, decisions) -> None:
+    """Rebuild the batch's decision rows without silently keeping stale choices."""
+    existing = {decision.session_id: decision for decision in batch.decisions.all()}
+    keep: set = set()
+    for draft in decisions:
+        keep.add(draft.session_id)
+        row = existing.get(draft.session_id)
+        if row is None:
+            ImportDecision.objects.create(
+                batch=batch,
+                session_id=draft.session_id,
+                kind=draft.kind,
+                proposed_json=draft.proposed,
+                current_json=draft.current,
+                reason=draft.reason,
+                options=list(draft.options),
+            )
+            continue
+        unchanged = (
+            row.kind == draft.kind
+            and row.proposed_json == draft.proposed
+            and row.current_json == draft.current
+            and list(row.options) == list(draft.options)
+        )
+        if unchanged:
+            continue
+        row.kind = draft.kind
+        row.proposed_json = draft.proposed
+        row.current_json = draft.current
+        row.reason = draft.reason
+        row.options = list(draft.options)
+        row.choice = ""
+        row.decided_by = None
+        row.decided_at = None
+        row.note = ""
+        row.save(
+            update_fields=[
+                "kind",
+                "proposed_json",
+                "current_json",
+                "reason",
+                "options",
+                "choice",
+                "decided_by",
+                "decided_at",
+                "note",
+                "updated_at",
+            ]
+        )
+    stale = batch.decisions.exclude(session_id__in=keep)
+    if stale.exists():
+        stale.delete()
+
+
 def build_preview(
     batch: ImportBatch,
     *,
@@ -348,6 +391,23 @@ def build_preview(
     school_date = school_date or selectors.current_school_date()
     parsed, parse_issues, file_hash = parse_batch_files(batch)
     issues = list(parse_issues)
+    if batch.mode != ImportMode.MERGE:
+        # B12d scoped-snapshot missing handling is paused.  Never let a
+        # snapshot batch silently run the merge path and look "committed".
+        issues.append(
+            make_issue(
+                file="",
+                sheet="",
+                row=0,
+                field="mode",
+                value=batch.mode,
+                code="SNAPSHOT_NOT_IMPLEMENTED",
+                message=(
+                    "限定范围快照（snapshot）的缺失识别与确认尚未实现；"
+                    "当前只能使用 merge 增量导入。请改用 merge 重新上传。"
+                ),
+            )
+        )
     issues.extend(validate_business_rows(parsed))
 
     ctx = BuildContext(
@@ -358,15 +418,22 @@ def build_preview(
         issues=issues,
     )
     plan = build_graph(ctx, now=now, school_date=school_date)
+    reconciliation = reconcile_sessions(ctx, plan, now=now)
 
     final_issues = dedupe_issues(ctx.issues)
     counts = row_counts(parsed, ctx.graph, final_issues)
     summary = summary_for(ctx.graph, plan)
-    hours = estimated_hours(ctx.graph)
+    summary["expected_new_sessions"] = reconciliation.counts["new"]
+    summary["session_target_counts"] = dict(reconciliation.counts)
+    summary["manual_decisions"] = len(reconciliation.decisions)
+    hours = reconciliation.estimated_hours
     summary["estimated_hours_by_offering"] = hours
     base_version = preview_base(ctx)
     batch_term_value = batch_term(ctx)
     change_summary = build_change_summary(ctx.graph)
+    change_summary["sessions_summary"] = dict(reconciliation.counts)
+    change_summary["sessions"] = list(reconciliation.changes)
+    change_summary["decisions"] = [decision.as_dict() for decision in reconciliation.decisions]
     fingerprint = preview_fingerprint(
         batch=batch,
         graph=ctx.graph,
@@ -379,35 +446,37 @@ def build_preview(
     )
 
     if persist:
-        batch.status = ImportStatus.PREVIEWED
-        batch.row_counts = counts
-        batch.errors_json = [issue.as_dict() for issue in final_issues]
-        batch.change_summary = change_summary
-        batch.preview_fingerprint = fingerprint
-        batch.preview_base_schedule_version = base_version
-        batch.term = batch_term_value
-        if file_hash:
-            batch.file_hash = file_hash
-        batch.save(
-            update_fields=[
-                "status",
-                "row_counts",
-                "errors_json",
-                "change_summary",
-                "preview_fingerprint",
-                "preview_base_schedule_version",
-                "term",
-                "file_hash",
-                "updated_at",
-            ]
-        )
+        with transaction.atomic():
+            batch.status = ImportStatus.PREVIEWED
+            batch.row_counts = counts
+            batch.errors_json = [issue.as_dict() for issue in final_issues]
+            batch.change_summary = change_summary
+            batch.preview_fingerprint = fingerprint
+            batch.preview_base_schedule_version = base_version
+            batch.term = batch_term_value
+            if file_hash:
+                batch.file_hash = file_hash
+            batch.save(
+                update_fields=[
+                    "status",
+                    "row_counts",
+                    "errors_json",
+                    "change_summary",
+                    "preview_fingerprint",
+                    "preview_base_schedule_version",
+                    "term",
+                    "file_hash",
+                    "updated_at",
+                ]
+            )
+            sync_import_decisions(batch, reconciliation.decisions)
 
     return PreviewResult(
         batch=batch,
         issues=tuple(final_issues),
         row_counts=counts,
         summary=summary,
-        expected_new_sessions=plan.expected_new,
+        expected_new_sessions=reconciliation.counts["new"],
         estimated_hours_by_offering=hours,
         preview_base_schedule_version=base_version,
         file_hash=file_hash,
@@ -417,6 +486,7 @@ def build_preview(
         school_date=school_date,
         change_summary=change_summary,
         fingerprint=fingerprint,
+        reconciliation=reconciliation,
     )
 
 

@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+# 部署演练栈：API + PostgreSQL 16.15（单机/本机演练）
+# ---------------------------------------------------------------------------
+# 与 infra/compose.yaml 的开发 PG/Mailpit 完全独立：本文件使用自己的项目名和
+# 显式命名卷，不会读写开发库卷，也不包含 Mailpit 或开发账号。
+#
+# 准备：
+#   Copy-Item infra/deploy/.env.example infra/deploy/.env
+#   编辑 infra/deploy/.env（示例值无效，必须替换密钥和密码）
+#
+# 只检查配置（不启动容器）：
+#   docker compose -f infra/deploy/compose.yaml config
+#
+# 首次启动（先完成 docs/deployment.md 中的 settings 变更）：
+#   docker compose -f infra/deploy/compose.yaml up -d --build
+# ---------------------------------------------------------------------------
+
+name: teacher-schedule-deploy
+
+# 非敏感、可随代码演进的运行参数；敏感值只从 .env 注入，便于演练时快速替换。
+x-api-environment: &api-environment
+  DJANGO_DEBUG: "false"
+  DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+  DJANGO_MEDIA_ROOT: /app/var/media
+  # 默认 smtp；本机预览可在私有 env 中覆盖为 console。
+  DJANGO_EMAIL_BACKEND: "${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}"
+  EMAIL_HOST: "${EMAIL_HOST:-}"
+  EMAIL_PORT: "${EMAIL_PORT:-587}"
+  EMAIL_HOST_USER: "${EMAIL_HOST_USER:-}"
+  EMAIL_HOST_PASSWORD: "${EMAIL_HOST_PASSWORD:-}"
+  EMAIL_USE_TLS: "${EMAIL_USE_TLS:-true}"
+  DEFAULT_FROM_EMAIL: "${DEFAULT_FROM_EMAIL:-教师课程表 <noreply@example.invalid>}"
+  APP_LINK_BASE: "${APP_LINK_BASE:-teacherschedule://}"
+
+services:
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    image: "${API_IMAGE:-teacher-schedule-api:local}"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *api-environment
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?请在 infra/deploy/.env 设置 DJANGO_SECRET_KEY}"
+      # 密码含 @ : / 等字符时必须百分号编码，建议只用字母数字。
+      DATABASE_URL: "postgres://${POSTGRES_USER:-schedule_app}:${POSTGRES_PASSWORD:?请在 infra/deploy/.env 设置 POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-schedule_app}"
+    ports:
+      # 默认只绑定回环地址，便于本机演练；对外部署时改 API_BIND_ADDRESS。
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-18000}:8000"
+    volumes:
+      - media_data:/app/var/media
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
+  db:
+    image: postgres:16.15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-schedule_app}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?请在 infra/deploy/.env 设置 POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-schedule_app}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  # Compose 会生成 teacher-schedule-deploy_postgres_data / _media；项目名与开发栈
+  # （infra）不同，因此不会复用 infra_pgdata。恢复演练使用独立项目名时也会得到
+  # 独立卷，`down -v` 不会碰到本项目的生产卷。
+  postgres_data:
+  media_data:

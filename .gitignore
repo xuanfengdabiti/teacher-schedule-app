@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# 本地演示参数：全部为明确虚构值，可随仓库分发
+!infra/deploy/.env.demo
 *.pem
 *.key
 *.keystore

@@ -8,7 +8,14 @@ from django.urls import path
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from apps.accounts.views import DeactivationView, LogoutAPIView, MeView, PasswordChangeAPIView
+from apps.accounts.views import (
+    AvatarView,
+    DeactivationView,
+    LogoutAPIView,
+    MeView,
+    PasswordChangeAPIView,
+    PreferencesView,
+)
 
 urlpatterns = [
     path(
@@ -49,5 +56,7 @@ urlpatterns = [
     ),
     path("auth/password/change/", PasswordChangeAPIView.as_view(), name="account-password-change"),
     path("me/", MeView.as_view(), name="account-me"),
+    path("me/preferences/", PreferencesView.as_view(), name="account-preferences"),
+    path("me/avatar/", AvatarView.as_view(), name="account-avatar"),
     path("me/deactivation/", DeactivationView.as_view(), name="account-deactivation"),
 ]

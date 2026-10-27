@@ -119,7 +119,9 @@ class TestSampleAcceptance:
         assert set(session_identities.values_list("object_id", flat=True)) <= set(sessions.values_list("id", flat=True))
 
         session_logs = ChangeLog.objects.filter(entity_type="session")
-        assert session_logs.count() == 42  # 40 generated + 2 status/completion updates
+        # B12c creates the explicit sessions rows with their final state in one
+        # write, so the two completed rows no longer produce a second log entry.
+        assert session_logs.count() == 40
         assert ChangeLog.objects.filter(entity_type="term").count() == 1
         assert set(session_logs.values_list("entity_id", flat=True)) >= set(completed.values_list("id", flat=True))
 

@@ -14,11 +14,6 @@ from __future__ import annotations
 from apps.imports.commit import CommitResult, ImportCommitError
 from apps.imports.commit import commit_batch as _commit_batch
 from apps.imports.preview import PreviewResult, build_preview, preview_batch
-from apps.scheduling.services import generate_sessions_for_term
-
-# Keep the imported callable as a module attribute so existing integrations can
-# patch ``apps.imports.services.generate_sessions_for_term`` in tests.
-
 
 __all__ = [
     "CommitResult",
@@ -30,11 +25,6 @@ __all__ = [
 ]
 
 
-def commit_batch(batch, actor, *, school_date=None) -> CommitResult:
-    """Commit through the patchable scheduling generation entry point."""
-    return _commit_batch(
-        batch,
-        actor,
-        generate_sessions=generate_sessions_for_term,
-        school_date=school_date,
-    )
+def commit_batch(batch, actor, *, school_date=None, now=None) -> CommitResult:
+    """Commit one previewed batch; ``now`` keeps tests deterministic."""
+    return _commit_batch(batch, actor, school_date=school_date, now=now)

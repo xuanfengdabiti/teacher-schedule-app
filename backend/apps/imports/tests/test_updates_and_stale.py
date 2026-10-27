@@ -13,7 +13,7 @@ from apps.scheduling.models import ChangeLog, ClassSession, ScheduleRule
 pytestmark = pytest.mark.django_db
 
 
-def test_existing_field_difference_is_change_not_supported(school, academic_staff, tmp_path) -> None:
+def test_term_structure_difference_is_change_not_supported(school, academic_staff, tmp_path) -> None:
     first_batch = make_batch(school)
     preview_batch(first_batch, now=PREVIEW_NOW)
     commit_batch(first_batch, academic_staff)
@@ -22,10 +22,10 @@ def test_existing_field_difference_is_change_not_supported(school, academic_staf
 
     paths = copy_templates(tmp_path)
     files = {path.name: path for path in paths}
-    rows = read_csv(files["periods.csv"])
-    rows[1][2] = "08:01"
-    write_csv(files["periods.csv"], rows)
-    second_batch = make_batch(school, files=[files["periods.csv"]])
+    rows = read_csv(files["terms.csv"])
+    rows[1][2] = "2026-09-08"
+    write_csv(files["terms.csv"], rows)
+    second_batch = make_batch(school, files=[files["terms.csv"]])
 
     result = preview_batch(second_batch, now=PREVIEW_NOW)
 
@@ -33,15 +33,15 @@ def test_existing_field_difference_is_change_not_supported(school, academic_staf
         (
             issue
             for issue in result.issues
-            if issue.file == "periods.csv"
+            if issue.file == "terms.csv"
             and issue.row == 2
-            and issue.field == "start_time"
+            and issue.field == "start_date"
             and issue.code == "CHANGE_NOT_SUPPORTED_YET"
         ),
         None,
     )
     assert issue is not None
-    assert "B12c" in issue.message
+    assert "新建学期" in issue.message
     with pytest.raises(ImportCommitError):
         commit_batch(second_batch, academic_staff)
     assert TeacherProfile.objects.get(teacher_no="0001").formal_name == original_name
@@ -126,10 +126,10 @@ def test_generation_failure_rolls_back_and_marks_batch_failed(
     batch = make_batch(school)
     preview_batch(batch, now=PREVIEW_NOW)
 
-    def fail_generation(term):
+    def fail_creation(*args, **kwargs):
         raise RuntimeError("模拟生成失败")
 
-    monkeypatch.setattr("apps.imports.services.generate_sessions_for_term", fail_generation)
+    monkeypatch.setattr("apps.imports.commit.apply_import_session_batch", fail_creation)
 
     with pytest.raises(ImportCommitError):
         commit_batch(batch, academic_staff)

@@ -1,8 +1,7 @@
-"""Unified formal session-change entry point (B31).
+"""Unified formal session-change entry point for B31 approvals.
 
-Every change to a session's date, periods or classroom must pass through
-:func:`apply_session_change`, including B12 imports, B31 approvals and future
-Admin manual adjustments.  The function is the only writer that updates a
+Every teacher/Admin reschedule must pass through
+:func:`apply_session_change`.  The function is the only writer that updates a
 session's schedule fields and increments both the session and term versions, so
 the following cannot drift into separate implementations:
 
@@ -12,6 +11,10 @@ the following cannot drift into separate implementations:
 * the before/after :class:`SessionChange` snapshot;
 * ``record_changes`` in the same transaction;
 * in-app notifications for every actual session teacher and the applicant.
+
+B12 import writes live in :mod:`apps.scheduling.import_changes` and share the
+same lock order, model invariants and ChangeLog conventions, but apply a whole
+batch in bulk rather than one session at a time.
 
 A request is merely an intent and reserves nothing.  Approval is therefore a
 new, authoritative check rather than trusting the request's stored summary.

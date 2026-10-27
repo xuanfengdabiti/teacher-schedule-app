@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -24,11 +24,30 @@ from apps.scheduling.models import ClassSession, ScheduleRule
 
 
 @dataclass
+class TermPlanData:
+    """Effective term inputs plus the expansion they produced.
+
+    ``periods``/``exceptions``/``rule_plans`` already include this batch's
+    changes on top of the committed rows.  They are reused by the session
+    reconciliation so conflict checks see the same times the plan used.
+    """
+
+    term: Term
+    periods: dict[int, Period]
+    exceptions: list[CalendarException]
+    rule_plans: dict[UUID, calendar.RulePlan]
+    planned: list[calendar.PlannedSession]
+    existing_sessions: list[ClassSession]
+
+
+@dataclass
 class PlanData:
     planned: list[calendar.PlannedSession]
     planned_by_key: dict[tuple[str, str, date, int], calendar.PlannedSession]
+    planned_by_rule_week: dict[tuple[str, str, int], calendar.PlannedSession]
     existing_generation_keys: set[tuple[UUID, date, int]]
     expected_new: int
+    term_plans: dict[str, TermPlanData]
 
 
 def objects_for_term(ctx: BuildContext, entity_type: str, term_code: str) -> list[ImportObject]:
@@ -87,11 +106,51 @@ def referenced_term_codes(graph: ImportGraph, batch, parsed=None) -> set[str]:
     return codes
 
 
+def configured_week(term: Term, origin_date: date, weekday: int) -> int:
+    """Return the teaching week that produced ``origin_date`` for ``weekday``.
+
+    ``origin_date`` is the date generated from the rule's *original* weekday.
+    Its own ISO weekday is therefore the stable old weekday even after the
+    committed rule has been changed and re-imported several times; using the
+    current rule weekday would subtract the new offset and drift one week.
+    """
+    return (origin_date - term.first_week_monday - timedelta(days=weekday - 1)).days // 7 + 1
+
+
+def planned_for_origin(
+    plan: PlanData,
+    term: Term,
+    *,
+    term_code: str,
+    rule: ScheduleRule,
+    origin_date: date,
+    origin_period: int,
+    allow_week_fallback: bool,
+) -> calendar.PlannedSession | None:
+    """Find the plan row for one saved generation key.
+
+    Exact keys win.  When the rule's weekday or start period changed, the
+    expansion produces a different origin key; the saved session is still the
+    same configured teaching week, so fall back to the week mapping.  The
+    fallback is only allowed when an existing session/identity proves this is
+    not a fresh, approximate match.
+    """
+    exact = plan.planned_by_key.get((term_code, rule.rule_code, origin_date, origin_period))
+    if exact is not None:
+        return exact
+    if not allow_week_fallback:
+        return None
+    week = configured_week(term, origin_date, origin_date.isoweekday())
+    return plan.planned_by_rule_week.get((term_code, rule.rule_code, week))
+
+
 def plan_all_sessions(ctx: BuildContext) -> PlanData:
     planned: list[calendar.PlannedSession] = []
     planned_by_key: dict[tuple[str, str, date, int], calendar.PlannedSession] = {}
+    planned_by_rule_week: dict[tuple[str, str, int], calendar.PlannedSession] = {}
     existing_generation_keys: set[tuple[UUID, date, int]] = set()
     expected_new = 0
+    term_plans: dict[str, TermPlanData] = {}
 
     for term_code in sorted(referenced_term_codes(ctx.graph, ctx.batch, ctx.parsed)):
         term_obj = ctx.graph.terms.get(term_code)
@@ -123,9 +182,18 @@ def plan_all_sessions(ctx: BuildContext) -> PlanData:
                     periods[number] = period
 
         exception_objects = objects_for_term(ctx, ENTITY_CALENDAR_EXCEPTION, term_code)
+        replaced_exception_pks = {
+            obj.existing.pk
+            for obj in exception_objects
+            if isinstance(obj.existing, CalendarException) and isinstance(obj.data, CalendarException)
+        }
         exceptions_by_date: dict[date, CalendarException] = {}
         if term.pk:
             for exception in CalendarException.objects.filter(term_id=term.pk):
+                # A changed exception may have moved to another date; remove
+                # the committed row by identity, not leave its old date behind.
+                if exception.pk in replaced_exception_pks:
+                    continue
                 exceptions_by_date[exception.date] = exception
         for obj in exception_objects:
             exception = obj.data
@@ -141,7 +209,7 @@ def plan_all_sessions(ctx: BuildContext) -> PlanData:
                 rule_plans_by_id.setdefault(plan.rule_id, plan)
         if term.pk:
             db_rules = (
-                ScheduleRule.objects.filter(offering__term_id=term.pk)
+                ScheduleRule.objects.filter(offering__term_id=term.pk, is_active=True)
                 .select_related("offering")
                 .prefetch_related("teachers")
             )
@@ -164,35 +232,41 @@ def plan_all_sessions(ctx: BuildContext) -> PlanData:
                 )
         rule_plans = list(rule_plans_by_id.values())
 
-        if not rule_plans:
-            continue
-        try:
-            term_planned = calendar.plan_term_sessions(
-                term=term,
-                rules=rule_plans,
-                periods=periods,
-                exceptions=exceptions,
-            )
-        except ValidationError as exc:
-            rows = rules[0].rows if rules else []
-            if rows:
-                ctx.add_issue(
-                    issue_for(
-                        rows[0],
-                        "rule_code",
-                        "RULE_EXPANSION_FAILED",
-                        f"规则展开失败：{' '.join(exc.messages)}",
-                    )
-                )
-            continue
-
-        existing_sessions: dict[tuple[UUID, date, int], ClassSession] = {}
+        existing_rows: list[ClassSession] = []
         if term.pk:
-            for session in ClassSession.objects.filter(
-                offering__term_id=term.pk,
-                rule__isnull=False,
-            ):
-                existing_sessions[(session.rule_id, session.origin_teaching_date, session.origin_period)] = session
+            existing_rows = list(
+                ClassSession.objects.filter(offering__term_id=term.pk)
+                .select_related("classroom", "offering__term", "offering__course")
+                .prefetch_related("teachers")
+            )
+        existing_sessions: dict[tuple[UUID, date, int], ClassSession] = {
+            (session.rule_id, session.origin_teaching_date, session.origin_period): session
+            for session in existing_rows
+            if session.rule_id is not None
+        }
+
+        term_planned: list[calendar.PlannedSession] = []
+        if rule_plans:
+            try:
+                term_planned = calendar.plan_term_sessions(
+                    term=term,
+                    rules=rule_plans,
+                    periods=periods,
+                    exceptions=exceptions,
+                )
+            except ValidationError as exc:
+                rows = rules[0].rows if rules else []
+                if rows:
+                    ctx.add_issue(
+                        issue_for(
+                            rows[0],
+                            "rule_code",
+                            "RULE_EXPANSION_FAILED",
+                            f"规则展开失败：{' '.join(exc.messages)}",
+                        )
+                    )
+                continue
+
         for planned_session in term_planned:
             key = (
                 term_code,
@@ -201,6 +275,7 @@ def plan_all_sessions(ctx: BuildContext) -> PlanData:
                 planned_session.origin_period,
             )
             planned_by_key[key] = planned_session
+            planned_by_rule_week[(term_code, planned_session.rule_code, planned_session.week)] = planned_session
             generation_key = (
                 planned_session.rule_id,
                 planned_session.origin_teaching_date,
@@ -211,10 +286,20 @@ def plan_all_sessions(ctx: BuildContext) -> PlanData:
             else:
                 expected_new += 1
         planned.extend(term_planned)
+        term_plans[term_code] = TermPlanData(
+            term=term,
+            periods=periods,
+            exceptions=exceptions,
+            rule_plans=rule_plans_by_id,
+            planned=term_planned,
+            existing_sessions=existing_rows,
+        )
 
     return PlanData(
         planned=planned,
         planned_by_key=planned_by_key,
+        planned_by_rule_week=planned_by_rule_week,
         existing_generation_keys=existing_generation_keys,
         expected_new=expected_new,
+        term_plans=term_plans,
     )

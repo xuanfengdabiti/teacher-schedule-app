@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
+from PIL import Image, UnidentifiedImageError
 from rest_framework import serializers
 
 from apps.academics.models import ContactVisibility, TeacherProfile, Term
-from apps.accounts.models import TeacherClaim, TeacherClaimStatus, normalize_user_email
+from apps.accounts.models import (
+    TeacherClaim,
+    TeacherClaimStatus,
+    UserPreferences,
+    normalize_user_email,
+)
 from apps.accounts.services import (
     revoke_all_refresh_tokens,
     teacher_claim_for,
@@ -175,6 +183,7 @@ class MeSerializer(serializers.Serializer):
     current_term = serializers.SerializerMethodField()
     teacher = serializers.SerializerMethodField()
     claim = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.BooleanField())
     def get_email_verified(self, obj) -> bool:
@@ -206,6 +215,106 @@ class MeSerializer(serializers.Serializer):
         if not claim or claim.status not in {TeacherClaimStatus.PENDING, TeacherClaimStatus.REJECTED}:
             return None
         return TeacherClaimMeSerializer(claim).data
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_avatar_url(self, obj) -> str | None:
+        """Return the authenticated download URL, never a MEDIA_ROOT path.
+
+        The random stored file name changes on every replacement, so the URL
+        itself busts client caches without a separate version field.
+        """
+        if not obj.avatar:
+            return None
+        path = f"/api/v1/me/avatar/?v={obj.avatar.name.rsplit('/', 1)[-1]}"
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request else path
+
+
+class PreferredTermSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    code = serializers.CharField()
+    name = serializers.CharField()
+
+
+class PreferencesSerializer(serializers.ModelSerializer):
+    """Read/write contract for ``GET/PATCH /api/v1/me/preferences/``."""
+
+    preferred_term = serializers.SerializerMethodField()
+    preferred_term_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = UserPreferences
+        fields = (
+            "font_size",
+            "local_reminder_enabled",
+            "local_reminder_minutes",
+            "preferred_term",
+            "preferred_term_id",
+            "push_enabled",
+            "push_schedule_changed",
+            "push_handoff",
+            "push_inquiry",
+            "push_plan",
+            "updated_at",
+        )
+        read_only_fields = ("updated_at",)
+
+    def get_preferred_term(self, obj) -> dict | None:
+        if obj.preferred_term_id is None:
+            return None
+        return PreferredTermSerializer(obj.preferred_term).data
+
+    def validate_preferred_term_id(self, value):
+        if value is None:
+            return None
+        school = self.context.get("school")
+        if school is None:
+            raise serializers.ValidationError("当前账号尚未确定学校，暂不能设置首选学期。")
+        if not Term.objects.filter(pk=value, school=school).exists():
+            raise serializers.ValidationError("请选择本校已有的学期，或传 null 清除。")
+        return value
+
+    def validate(self, attrs):
+        unexpected = [field for field in self.initial_data if field not in self.fields]
+        if unexpected:
+            raise serializers.ValidationError({field: ["该设置字段不存在。"] for field in unexpected})
+        return attrs
+
+    def update(self, instance, validated_data):
+        term_id = validated_data.pop("preferred_term_id", serializers.empty)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if term_id is not serializers.empty:
+            instance.preferred_term_id = term_id
+        instance.save()
+        return instance
+
+
+class AvatarUploadSerializer(serializers.Serializer):
+    """Validate a normal raster avatar; no image-recognition platform."""
+
+    avatar = serializers.ImageField()
+    MAX_BYTES = 2 * 1024 * 1024
+    ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
+
+    def validate_avatar(self, value):
+        if value.size > self.MAX_BYTES:
+            raise serializers.ValidationError("头像不能超过 2 MB。")
+        try:
+            image = Image.open(BytesIO(value.read()))
+            image.verify()
+            image_format = image.format
+        except (UnidentifiedImageError, OSError, ValueError):
+            raise serializers.ValidationError("上传文件不是可识别的图片。")
+        finally:
+            value.seek(0)
+        if image_format not in self.ALLOWED_FORMATS:
+            raise serializers.ValidationError("仅支持 JPEG、PNG 或 WebP 图片。")
+        return value
+
+
+class AvatarSerializer(serializers.Serializer):
+    avatar_url = serializers.URLField(allow_null=True)
 
 
 class LogoutRequestSerializer(serializers.Serializer):

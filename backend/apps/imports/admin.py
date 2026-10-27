@@ -10,12 +10,21 @@ from __future__ import annotations
 
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 
 from apps.imports.forms import ImportBatchUploadForm
-from apps.imports.models import ImportBatch, ImportIdentity, ImportStatus
+from apps.imports.models import (
+    ImportBatch,
+    ImportDecision,
+    ImportDecisionChoice,
+    ImportDecisionKind,
+    ImportIdentity,
+    ImportStatus,
+)
 from apps.imports.services import ImportCommitError, commit_batch, preview_batch
 from apps.imports.storage import save_uploaded_files
 
@@ -33,7 +42,7 @@ class ImportBatchAdmin(admin.ModelAdmin):
         "committed_at",
         "created_at",
     )
-    list_filter = ("status", "mode", "school", "source_system")
+    list_filter = ("status", "school", "source_system")
     search_fields = ("id", "school__code", "source_system", "term__code")
     list_select_related = ("school", "term", "uploaded_by", "committed_by")
     date_hierarchy = "created_at"
@@ -83,6 +92,11 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.commit_view),
                 name="imports_importbatch_commit",
             ),
+            path(
+                "<path:object_id>/decisions/",
+                self.admin_site.admin_view(self.decisions_view),
+                name="imports_importbatch_decisions",
+            ),
         ]
         return custom + super().get_urls()
 
@@ -90,6 +104,13 @@ class ImportBatchAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         batch = ImportBatch.objects.filter(pk=object_id).first()
         extra_context["can_commit"] = self._can_commit(request, object_id)
+        extra_context["undecided_count"] = batch.decisions.filter(choice="").count() if batch is not None else 0
+        extra_context["decision_items"] = (
+            list(batch.decisions.select_related("session", "decided_by").order_by("created_at", "id"))
+            if batch is not None
+            else []
+        )
+        extra_context["decision_choices"] = ImportDecisionChoice.choices
         extra_context["preview_errors"] = [
             item for item in (batch.errors_json if batch else []) if item.get("level", "error") == "error"
         ]
@@ -100,7 +121,11 @@ class ImportBatchAdmin(admin.ModelAdmin):
 
     def _can_commit(self, request, object_id) -> bool:
         batch = ImportBatch.objects.filter(pk=object_id).first()
-        return bool(batch and batch.status == ImportStatus.PREVIEWED and not batch.has_errors)
+        if batch is None or batch.status != ImportStatus.PREVIEWED or batch.has_errors:
+            return False
+        if batch.decisions.filter(choice="").exists():
+            return False
+        return not batch.decisions.filter(choice=ImportDecisionChoice.APPLY_IMPORT, note="").exists()
 
     def add_view(self, request, form_url="", extra_context=None):
         if not self.has_add_permission(request):
@@ -148,7 +173,8 @@ class ImportBatchAdmin(admin.ModelAdmin):
                     self.message_user(
                         request,
                         f"预览完成：预计新建 {result.expected_new_sessions} 个规则课次，"
-                        f"{len(result.warnings)} 条警告，未发现错误。",
+                        f"{len(result.warnings)} 条警告，{batch.decisions.count()} 条人工决定项，"
+                        "未发现错误。",
                         level=messages.SUCCESS,
                     )
             return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[batch.pk]))
@@ -189,6 +215,62 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 )
         return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[object_id]))
 
+    def decisions_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[object_id]))
+        batch = self.get_object(request, object_id)
+        if batch is None:
+            self.message_user(request, "导入批次不存在。", level=messages.ERROR)
+            return HttpResponseRedirect(reverse("admin:imports_importbatch_changelist"))
+
+        keep_all = request.POST.get("action") == "keep_all"
+        try:
+            with transaction.atomic():
+                locked = ImportBatch.objects.select_for_update().get(pk=batch.pk)
+                if locked.status != ImportStatus.PREVIEWED:
+                    raise ValueError("只有已预览且未提交的批次可以处理决定项。")
+                decisions = list(
+                    ImportDecision.objects.select_for_update().filter(batch=locked).order_by("created_at", "id")
+                )
+                if not decisions:
+                    raise ValueError("该批次没有人工决定项。")
+                now = timezone.now()
+                values = []
+                for decision in decisions:
+                    if keep_all:
+                        choice = ImportDecisionChoice.KEEP_EXISTING
+                    else:
+                        choice = request.POST.get(f"choice_{decision.pk}", "").strip()
+                        if not choice:
+                            raise ValueError("还有未选择的决定项；请逐条选择或点击“全部保留现状”。")
+                    options = set(decision.options or ())
+                    if choice not in options:
+                        raise ValueError(f"课次 {decision.session_id} 不支持所选动作。")
+                    note = (request.POST.get(f"note_{decision.pk}", "") or "").strip()
+                    if not note:
+                        note = decision.note
+                    if choice == ImportDecisionChoice.APPLY_IMPORT:
+                        if decision.kind == ImportDecisionKind.COMPLETED:
+                            raise ValueError("已完成课次只能保留现状。")
+                        if not note:
+                            raise ValueError(f"课次 {decision.session_id} 采用导入结果时必须填写依据说明。")
+                    values.append((decision, choice, note, now))
+                for decision, choice, note, decided_at in values:
+                    decision.choice = choice
+                    decision.note = note
+                    decision.decided_by = request.user
+                    decision.decided_at = decided_at
+                    decision.save(update_fields=["choice", "note", "decided_by", "decided_at", "updated_at"])
+        except ValueError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+        else:
+            self.message_user(
+                request,
+                "人工决定项已保存；仍可在提交前重新预览或调整。",
+                level=messages.SUCCESS,
+            )
+        return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[object_id]))
+
     def commit_view(self, request, object_id):
         if request.method != "POST":
             return HttpResponseRedirect(reverse("admin:imports_importbatch_change", args=[object_id]))
@@ -205,9 +287,10 @@ class ImportBatchAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     (
-                        f"导入已提交：新建 {result.created} 个对象，更新 {result.changed} 个对象，"
-                        f"生成 {result.sessions_generated} 个课次，匹配 {result.sessions_matched} 条 "
-                        f"sessions 行，更新完成量 {result.sessions_changed} 条。"
+                        f"导入已提交：基础对象新建 {result.created} 个、更新 {result.changed} 个；"
+                        f"课次新增 {result.sessions_new}、更新 {result.sessions_changed}、"
+                        f"取消 {result.sessions_cancelled}、恢复 {result.sessions_restored}；"
+                        f"人工保留 {result.decisions_kept}、人工采用 {result.decisions_applied}。"
                     ),
                     level=messages.SUCCESS,
                 )
@@ -239,6 +322,50 @@ class ImportIdentityAdmin(admin.ModelAdmin):
         "external_id",
         "object_id",
         "batch",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_view_permission(self, request, obj=None) -> bool:
+        return True
+
+
+@admin.register(ImportDecision)
+class ImportDecisionAdmin(admin.ModelAdmin):
+    list_display = (
+        "batch",
+        "session",
+        "kind",
+        "choice",
+        "decided_by",
+        "decided_at",
+        "created_at",
+    )
+    list_filter = ("kind", "choice")
+    search_fields = ("batch__id", "session__id")
+    list_select_related = ("batch", "session", "decided_by")
+    readonly_fields = (
+        "id",
+        "batch",
+        "session",
+        "kind",
+        "proposed_json",
+        "current_json",
+        "reason",
+        "options",
+        "choice",
+        "decided_by",
+        "decided_at",
+        "note",
         "created_at",
         "updated_at",
     )

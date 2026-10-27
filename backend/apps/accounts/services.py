@@ -11,7 +11,11 @@ from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from apps.academics.models import ContactVisibility, School, TeacherProfile, TeacherStatus
-from apps.accounts.models import TeacherClaim, TeacherClaimStatus, normalize_user_email
+from apps.accounts.models import (
+    TeacherClaim,
+    TeacherClaimStatus,
+    normalize_user_email,
+)
 from apps.common.exceptions import TeacherDisabled, TeacherNotLinked
 from apps.notifications.services import disable_device_bindings
 

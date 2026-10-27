@@ -43,7 +43,7 @@
 | `PersonBlock` 人员不可用 | 教师或学生、起止时间、原因、来源；覆盖考试、会议及明确登记的不可用时段 |
 | `ScheduleRule` 排课规则 | 课程开设、星期、起止节、教学周集合、教师、教室；只作生成规则与导入溯源 |
 | `ClassSession` 课次 | 稳定 ID、课程开设、日期、起止时间、起止节、教室、状态、计划学时、完成学时、版本号、来源编号；通过 `SessionTeacher` 关联实际授课教师 |
-| `SessionChange` 课次变更 | 同一课次的调整前后值、原因、确认人、确认时间、批准依据描述；保留实际变更记录 |
+| `SessionChange` 课次变更 | 同一课次的调整前后值、原因、来源（`reschedule`/`import`）、确认人、确认时间、批准依据描述；保留实际变更记录 |
 | `RescheduleRequest` 调课申请 | 原课次、目标时间与教室、说明、查询时版本、当前状态、学校审批结果；申请本身不占用教室 |
 | `TeachingNote` 教学记录 | 课次、作者、已讲、未完成、下次计划、草稿/已发布、更新时间、版本号 |
 | `Handoff` 教学交接 | 课程开设、来源记录、发送教师、接收教师、目标课次可空、内容、待确认/已确认/已撤回、确认时间 |
@@ -58,6 +58,7 @@
 | `InquiryReply` 协查回复 | 请求、回复教师、未见到/已保管/其他、文字说明、回复时间；只供相关接收人回复 |
 | `ImportBatch` 导入批次 | 文件、类型、数据范围、预览错误、确认状态、统计、确认人；用于导入结果和修正追踪 |
 | `ImportIdentity` 导入身份映射 | 学校、来源系统、对象类型、外部编号、本地对象 ID；维持源数据到稳定课次 ID 的映射 |
+| `ImportDecision` 导入人工决定 | 批次、课次、类型（touched_change/conflict/completed_locked）、导入目标/现状快照、原因、可选动作、教务选择、依据说明、决定人和时间；未决定不能提交 |
 | `DataCoverage` 数据覆盖 | 数据类别、学期/资源范围、生效日期范围、complete/partial/missing、来源更新时间、确认批次；显式表达检查覆盖 |
 | `DeviceRegistration` 推送设备 | 账号、平台、厂商、客户端安装 ID、推送客户端 ID、启用状态、更新时间；退出时解除绑定 |
 | `DeliveryAttempt` 投递记录 | 消息、设备/渠道、尝试序号、状态、下次尝试时间、供应商消息 ID、失败摘要；支持查询和有限重试 |
@@ -79,11 +80,11 @@
 | Enrollment / TeachingAssignment | Enrollment：offering_id、student_id、effective_from、effective_until，三元组 offering_id+student_id+effective_from 唯一；索引 student_id+effective_from+effective_until 及 offering_id+effective_from。任课同理，增加 role。服务层拒绝同一对象同一人员的重叠有效期；数据库检查 until>from |
 | Classroom / RoomBlock / PersonBlock | 教室：school_id+campus+building+room_no 唯一，capacity≥0，equipment 为代码集合。RoomBlock 索引 room_id+start_at，检查 end_at>start_at。PersonBlock 为 teacher_id/student_id 两个可空 FK 且恰好填写一个，索引分别为 teacher_id+start_at、student_id+start_at；同样检查时间正长 |
 | ScheduleRule / ClassSession / SessionTeacher | Rule：offering_id、weeks 列表、weekday、period_start/end、classroom_id、source_key；源 key 在来源范围内唯一。Session：offering_id、start_at、end_at、origin_teaching_date、origin_period、rule_id 可空、classroom_id、status、planned_hours≥0、actual_hours、completed_by_teacher_id/at、completion_ref、recorded_by_user_id、version；scheduled 的 actual_hours 为空，completed 必填非负量和教师确认来源，cancelled 为 0；检查 end_at>start_at；索引 offering_id+start_at、classroom_id+start_at。规则生成键 rule_id+origin_teaching_date+origin_period 唯一且调课后不变；SessionTeacher：session_id+teacher_id 唯一，索引 teacher_id+session_id |
-| SessionChange / RescheduleRequest | Change：session_id、request_id 可空、before_json、after_json、session_version、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_date、target_start_period/end_period、target_start_at/end_at、target_classroom_id、reason、base_session_version、checked_schedule_version、check_summary、status、needs_verification、decision_by/at/ref/note、forced_override；索引 applicant_id+created_at、status+created_at；同一课次+申请人的 submitted 申请唯一；状态迁移与正式生效统一服务 |
+| SessionChange / RescheduleRequest | Change：session_id、request_id 可空、before_json、after_json、session_version、source（reschedule/import）、actor_id、reason、approval_ref、forced_override、recorded_at；session_id+session_version 唯一。申请：session_id、applicant_id、target_date、target_start_period/end_period、target_start_at/end_at、target_classroom_id、reason、base_session_version、checked_schedule_version、check_summary、status、needs_verification、decision_by/at/ref/note、forced_override；索引 applicant_id+created_at、status+created_at；同一课次+申请人的 submitted 申请唯一；状态迁移与正式生效统一服务 |
 | TeachingNote / Handoff | Note：session_id+author_id 唯一，draft_covered/unfinished/next_plan 与 published_covered/unfinished/next_plan 分开、published_at、published_version、version；published_at 与 published_version 同时为空或非空；保存草稿不覆盖已发布快照。Handoff：offering_id、note_id/version 可空、sender_id、recipient_id、source_session_id/target_session_id 可空、content_snapshot（≤5000）、status=pending/acknowledged/withdrawn、read_at、acknowledged_at、withdrawn_at；sender≠recipient，acknowledged 必须有确认时间，withdrawn 必须有撤回时间，note 与 note_published_version 同为空或同非空；索引 recipient_id+status+created_at、sender_id+created_at；一条交接一个接收人 |
 | TeachingPlan / PlanRevision / PlanItem / SessionProgress / CompletionRecord | Plan：offering_id 一对一、owner_id、status、version≥1。Revision：plan_id+version 唯一，items_json 为保存时完整条目快照，saved_by/saved_at；每次保存追加，不删除旧版本。Item：plan_id+position 唯一，position≥1，title、planned_hours≥0、due_date 与 due_session_id 至多一个、archived；due_session 必须同 offering（服务校验）。Progress：session_id+plan_item_id 唯一、actual_hours≥0；索引 plan_item_id。CompletionRecord：session_id、actor_id、action=complete/correct/revert、操作前后 actual_hours、allocations_json、reason（correct/revert 必填）、created_at。每次完成/更正/撤销在同一事务写课次日志、SessionProgress 和记录；分配合计≤课次实际学时，专题与课次同属一个 Offering |
 | Inquiry / InquiryRecipient / InquiryReply | Inquiry：initiator_id、classroom_id、from_at、to_at、item_description、status、closed_at、close_note；索引 initiator_id+status+created_at，检查 to_at>from_at。Recipient：inquiry_id+teacher_id 唯一，related_session_ids 快照。Reply：inquiry_id、author_id、result=not_seen/in_custody/other、body、created_at；索引 inquiry_id+created_at。允许同一接收人补充回复，每条回复追加保存；只有发起人结案 |
-| ImportBatch / ImportIdentity / DataCoverage | Batch：source_system、term_id、kind、mode、scope_json、file_hash、status=uploaded/previewed/committed/failed、preview_base_schedule_version、row_counts、errors_json、committed_by/at；索引 term_id+created_at。Identity：school_id+source_system+entity_type+external_id 唯一。Coverage：school_id、term_id、kind、scope_key、from_date、until_date、completeness、source_updated_at、batch_id，索引 term_id+kind+scope_key+from_date；覆盖包含目标范围且标记完整才可证明该类数据完整，不能以“无记录”代替 complete |
+| ImportBatch / ImportIdentity / DataCoverage | Batch：source_system、term_id、kind、mode、scope_json、file_hash、status=uploaded/previewed/committed/failed、preview_base_schedule_version、row_counts、errors_json、committed_by/at；索引 term_id+created_at。Identity：school_id+source_system+entity_type+external_id 唯一。Coverage：school_id、term_id、kind、scope_key、from_date、until_date、completeness、source_updated_at、batch_id，索引 term_id+kind+scope_key+from_date；覆盖包含目标范围且标记完整才可证明该类数据完整，不能以“无记录”代替 complete。ImportDecision：batch_id+session_id 唯一、kind、proposed_json、current_json、reason、options、choice 可空、decided_by/at、note；索引 batch_id+choice |
 | Notification / DeviceRegistration / DeliveryAttempt | 消息：recipient_id+event_key 唯一，type、object_type/id、read_at；索引 recipient_id+created_at、recipient_id+read_at。设备：installation_id 唯一、user_id、provider、provider_client_id、platform、enabled、last_seen_at。投递：notification_id+device_id+channel+attempt_no 唯一，status=pending/processing/sent/failed、next_attempt_at、provider_message_id、provider_delivered_at 可空、error_code、error_summary；索引 status+next_attempt_at；供应商受理 sent、设备回执 provider_delivered_at 与 App 已读 read_at 分开 |
 | ClientMutation / SchoolSyncState / ChangeLog | Mutation：user_id+client_mutation_id 唯一、operation、request_hash、result_object_id/version、response_json、completed_at；同 key 不同请求内容返回 409，不重复写。State：school_id 一对一、last_seq。Log：school_id+change_seq 唯一、entity_type/id、offering_id 可空、version、tombstone；索引 school_id+change_seq。所有同步相关写操作在事务中先锁 State 行，日程写再锁 Term 行，更新对象、递增版本、分配序号与日志同事务，统一锁顺序 |
 
@@ -98,7 +99,7 @@
 3. 排课规则保存明确的周次集合，例如 `[1, 3, 5, 7]`；“单周/双周”只是编辑捷径。不能只存一条每周重复规则而丢失考试周、停课周。
 4. 先展开基础课次，再应用校历例外和已确认的单次变更，形成 APP 与冲突查询共同使用的最终课次表。
 5. 调休需要明确“某个实际日期执行哪天的教学安排”。不得根据星期几猜测，也不允许同一次调休意外生成两次课程。
-6. 自动生成只修改未来、尚未人工调整且未完成的课次；已经发布记录或已确认调课的课次在导入预览中列为冲突，要求管理员选保留或替换，不静默覆盖。
+6. 导入的自动更新只修改未触碰课次：状态 `scheduled`、开始时间晚于提交时刻、无 `SessionChange`（`source=import` 的导入自身记录除外）、无教学备注、无交接（source/target）、无草稿/待审批调课申请、无完成记录。已有记录、已确认调课或已完成课次进入 `ImportDecision`，由教务选择保留或采用；completed 课次的日期/节次/时间/教室/状态/完成量差异只提供“保留现状”。由规则/校历/节次变化引起、涉及日期/节次/时间/教室且已开始的课次默认保持现状，不自动移动或取消；仅教师或计划学时差异的未触碰课次仍可更新；`sessions.csv` 显式单次变化（必须带 change_ref）不受此限制。自动更新与恢复前的资源冲突检查复用 B30 的批量快照与 `_TargetEvaluator`，但使用 `policy="import"`，并把本批最终目标安排（含同批新增课次、目标授课教师、跨学期目标和新增/修改的教室占用/人员不可用）作为占用叠加、按整批移除将迁出的旧占用；仅教师变化也进入检查。已知冲突即使未触碰也进入人工决定，不静默接受。人工决定采用/保留后在正式写入前按实际组合再检查一次，保留的课次会使自动采用目标冲突时整批拒绝。
 7. 已确定口径：停课、`custom`、`replace` 目标日上的基础课次以 `cancelled` 状态保留，不删除、不忽略；保留原生成键与 UUID，校历以后撤销时可恢复同一课次。
 
 ### 3.2 展示及状态
@@ -152,6 +153,8 @@
 - 批准生效时，按统一顺序先锁 SchoolSyncState，再锁本学期 Term 行，再锁 RescheduleRequest 行，最后锁 ClassSession 行，并在锁内重新检查当前课次版本与目标资源；通过后在同一事务内更新课次、递增课次/学期版本、写 SessionChange 前后快照与同步日志、创建通知及待投递记录。导入等不由申请发起的写入口同样先锁 State/Term，再按需锁申请或课次。申请本身不占用教室。
 - 若批准时发现新冲突或数据缺口，申请保持 `submitted`，服务端把最新评估写回 `check_summary` 并返回业务错误；不直接覆盖，也不把课次移动到未确认目标。待审批期间首页继续显示原安排；批准后显示新安排及变更提示，原日期可在变更记录中查看。
 - 首版不支持交换两节课、批量连环调课和抢占预约，也不提供“一次确认两条变更”的隐含换课入口。交换课统一列为后续版本能力。
+
+B12c 导入写入口 `apps.scheduling.import_changes.apply_import_session_batch` 与 B31 共用同一套正式课表写入边界：锁顺序 `SchoolSyncState → Term →（待审批申请）→ ClassSession`，课次 `version+1`，`SessionChange` 前后快照（`source=import`）、`ChangeLog`、教师 `schedule_changed` 汇总通知和待确认交接核对提示同事务。整批只做一次批量课次写入、一次 `SessionChange.bulk_create` 和一次 `record_changes`；导入批次对每个受影响学期只递增一次 `Term.schedule_version`。每位受影响教师每批只收到一条汇总消息（`event_key=import:{batch_id}:{teacher_id}`），每条待审批申请/交接每批最多一条提示。`sessions.csv` 的 `change_ref` 进入 `SessionChange.approval_ref`；教务选择“采用导入结果”时以填写的依据说明作为 `approval_ref` 并记录 `forced_override=true`。待审批的 submitted 申请在课次被导入移动/取消/恢复后保持 submitted，但 `check_summary` 写入提示并通知申请人重新核对。
 
 ## 5. 教学备注与多教师交接
 
@@ -238,7 +241,7 @@
 
 ### 9.1 通知
 
-APP 内消息是业务事实来源。调课生效、被退回、收到交接及确认、Inquiry 请求及 InquiryReply、导入导致个人课表变化均生成消息；点击进入对应对象。以“业务事件 ID + 接收人”去重，重复同步不重复弹消息。
+APP 内消息是业务事实来源。调课生效、被退回、收到交接及确认、Inquiry 请求及 InquiryReply、导入导致个人课表变化均生成消息；导入按“批次 + 教师”汇总为一条，列出新增/调整/取消/恢复节数。点击进入对应对象。以“业务事件 ID + 接收人”去重，重复同步不重复弹消息。
 
 课程开始提醒由手机对已缓存课次安排本地通知，默认提前 15 分钟，可关闭或修改。刷新课表、调课、取消课、退出账号后应撤销并重建相应提醒。系统通知权限未授予时继续正常显示 APP 消息，并在设置中提示启用入口。
 

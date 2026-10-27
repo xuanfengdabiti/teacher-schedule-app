@@ -3,9 +3,11 @@
 There is one conflict algorithm for the whole project.  :class:`_TargetEvaluator`
 evaluates a single ``(day, period run, classroom)`` target from a preloaded data
 snapshot.  :func:`evaluate_target` is the public single-target entry point used
-by B31 submission/approval, while :func:`find_reschedule_options` builds one
-snapshot and calls the same evaluator for every candidate.  There is deliberately
-no second implementation in the request or change service.
+by B31 submission/approval, :func:`evaluate_import_targets` evaluates all import
+moves/restores from one preloaded snapshot per term, and
+:func:`find_reschedule_options` builds one snapshot and calls the same evaluator
+for every candidate.  There is deliberately no second implementation in the
+request or change service.
 
 Candidate generation answers three separate questions for every target:
 
@@ -23,7 +25,7 @@ days) must not change the query count; see A04-A08, A21, A22 and A26 in
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -60,6 +62,15 @@ ELIGIBILITY_NOT_ALLOWED = "not_allowed"
 TARGET_NOT_ALLOWED = "TARGET_NOT_ALLOWED"
 RESCHEDULE_CONFLICT = "RESCHEDULE_CONFLICT"
 DATA_UNVERIFIED = "DATA_UNVERIFIED"
+
+# B30/B31 use the conservative reschedule policy: a target must be in the
+# future, inside an ordinary teaching day, within one period block and keep the
+# source session's period count.  B12 imports a school-confirmed timetable, so
+# they only need the teacher/student/classroom conflict computation.  Keeping
+# the policy as an explicit argument prevents imports from weakening B30/B31 by
+# accidentally sharing a "relaxed" code path.
+POLICY_RESCHEDULE = "reschedule"
+POLICY_IMPORT = "import"
 
 CONFLICT_TEACHER = "teacher"
 CONFLICT_STUDENT = "student"
@@ -192,6 +203,35 @@ class TargetEvaluation:
 
 
 @dataclass(frozen=True)
+class ImportEvaluationRequest:
+    """One import target evaluated against a shared batch snapshot."""
+
+    session: ClassSession
+    day: date
+    start_period: int
+    end_period: int
+    classroom: Classroom
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    teacher_ids: tuple[UUID, ...] | None = None
+    status: str = SessionStatus.SCHEDULED
+
+
+@dataclass(frozen=True)
+class ImportOccupancyTarget:
+    """One target session that will occupy a resource in the batch result."""
+
+    id: UUID
+    offering_id: UUID
+    start_at: datetime
+    end_at: datetime
+    classroom_id: UUID
+    teacher_ids: tuple[UUID, ...]
+    status: str = SessionStatus.SCHEDULED
+    course_name: str = ""
+
+
+@dataclass(frozen=True)
 class RescheduleOption:
     start_at: datetime
     end_at: datetime
@@ -315,6 +355,7 @@ class _EvaluationData:
     occupancy_by_day: dict[date, tuple[ClassSession, ...]]
     occupancy_by_day_room: dict[tuple[date, UUID], tuple[ClassSession, ...]]
     teachers_by_session: dict[UUID, set[UUID]]
+    teachers_by_id: dict[UUID, TeacherProfile]
     source_teachers: tuple[TeacherProfile, ...]
     enrolments_by_offering: dict[UUID, list[_EnrollmentInterval]]
     student_numbers: dict[UUID, str]
@@ -322,6 +363,7 @@ class _EvaluationData:
     room_blocks_by_day_room: dict[tuple[date, UUID], tuple[RoomBlock, ...]]
     coverage: _CoverageLookup
     required_equipment: frozenset[str]
+    excluded_session_id: UUID | None = None
 
 
 def _check_source_status(session: ClassSession) -> None:
@@ -615,6 +657,15 @@ def _build_option_reasons(
     return tuple(dict.fromkeys(reasons))
 
 
+def _occupancy_course_name(occupied) -> str:
+    name = getattr(occupied, "course_name", "")
+    if name:
+        return name
+    offering = getattr(occupied, "offering", None)
+    course = getattr(offering, "course", None)
+    return getattr(course, "name", "")
+
+
 def _target_times(
     term,
     periods: dict[int, Period],
@@ -623,18 +674,24 @@ def _target_times(
     day: date,
     start_period: int,
     end_period: int,
+    require_same_span: bool = True,
+    require_same_block: bool = True,
 ) -> tuple[datetime | None, datetime | None, str | None]:
     """Validate period geometry and return target start/end times.
 
     This is only the structural period check; calendar, weekend, past-time,
     room, capacity and equipment checks live in the evaluator so they use the
-    same preloaded data as every conflict check.
+    same preloaded data as every conflict check.  ``require_same_span`` and
+    ``require_same_block`` are reschedule-policy rules (keep a move to the same
+    number of periods and within one morning/afternoon block); imports may turn
+    them off without touching the B30/B31 defaults.
     """
     if start_period < 1 or end_period < start_period:
         return None, None, "目标节次范围无效。"
-    span = source.end_period - source.start_period + 1
-    if end_period - start_period + 1 != span:
-        return None, None, f"目标节次数必须与源课次一致（{span} 节）。"
+    if require_same_span:
+        span = source.end_period - source.start_period + 1
+        if end_period - start_period + 1 != span:
+            return None, None, f"目标节次数必须与源课次一致（{span} 节）。"
 
     selected = [periods.get(number) for number in range(start_period, end_period + 1)]
     if any(period is None for period in selected):
@@ -646,7 +703,7 @@ def _target_times(
         return None, None, f"目标节次不存在：第 {'、'.join(str(number) for number in missing)} 节。"
     assert all(period is not None for period in selected)
     block_code = selected[0].block_code
-    if any(period.block_code != block_code for period in selected):
+    if require_same_block and any(period.block_code != block_code for period in selected):
         return None, None, "目标节次必须位于同一时段组，不能跨午休或上下午。"
 
     start_time = selected[0].start_time
@@ -670,12 +727,29 @@ def _load_evaluation_data(
     search_start: datetime,
     search_end: datetime,
     classrooms: tuple[Classroom, ...],
+    source_offering_ids: set[UUID] | None = None,
+    source_teacher_ids: set[UUID] | None = None,
+    extra_session_ids: set[UUID] | None = None,
+    keep_source_session: bool = False,
+    excluded_session_id: UUID | None = None,
+    replaced_session_ids: set[UUID] | None = None,
+    overlay_sessions: list[ClassSession] | None = None,
+    overlay_teachers: dict[UUID, set[UUID]] | None = None,
+    replaced_room_block_ids: set[UUID] | None = None,
+    overlay_room_blocks: list[RoomBlock] | None = None,
+    replaced_person_block_ids: set[UUID] | None = None,
+    overlay_person_blocks: list[PersonBlock] | None = None,
 ) -> _EvaluationData:
     """Load every row needed for all targets in this window.
 
     Eight fixed queries (periods/exceptions are loaded by the caller): schedule
     occupancy, session teachers, enrolments, person blocks, room blocks and
     coverage.  Nothing in the candidate loop below issues a query.
+
+    ``keep_source_session=True`` is used by the import batch evaluator: it loads
+    all sessions once and each per-target evaluator skips its own row via
+    ``excluded_session_id``.  Defaults preserve the B30/B31 single-session
+    behaviour exactly.
     """
     offering = session.offering
     term = offering.term
@@ -708,34 +782,61 @@ def _load_evaluation_data(
     # One query for every session in the same school that could overlap any
     # candidate, regardless of which term owns it.  Time across the whole
     # school must be considered, not only the source term's offerings.
-    occupancy_sessions = list(
-        ClassSession.objects.filter(
-            offering__term__school_id=term.school_id,
-            status__in=(SessionStatus.SCHEDULED, SessionStatus.COMPLETED),
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        )
-        .exclude(pk=session.pk)
-        .select_related("offering__course")
-        .order_by("start_at", "id")
-    )
-    session_ids = [session.id, *(occupied.id for occupied in occupancy_sessions)]
+    occupancy_sessions_query = ClassSession.objects.filter(
+        offering__term__school_id=term.school_id,
+        status__in=(SessionStatus.SCHEDULED, SessionStatus.COMPLETED),
+        start_at__lt=search_end,
+        end_at__gt=search_start,
+    ).select_related("offering__course")
+    if not keep_source_session:
+        occupancy_sessions_query = occupancy_sessions_query.exclude(pk=session.pk)
+    if replaced_session_ids:
+        occupancy_sessions_query = occupancy_sessions_query.exclude(pk__in=replaced_session_ids)
+    occupancy_sessions = list(occupancy_sessions_query.order_by("start_at", "id"))
+    if overlay_sessions:
+        occupancy_sessions.extend(overlay_sessions)
+    session_ids = [session.id, *(extra_session_ids or ()), *(occupied.id for occupied in occupancy_sessions)]
     teacher_links = list(
         SessionTeacher.objects.filter(session_id__in=session_ids)
         .select_related("teacher")
         .order_by("session_id", "teacher__teacher_no")
     )
     teachers_by_session: dict[UUID, set[UUID]] = defaultdict(set)
+    teachers_by_id: dict[UUID, TeacherProfile] = {}
     source_teachers: dict[UUID, TeacherProfile] = {}
     for link in teacher_links:
         teachers_by_session[link.session_id].add(link.teacher_id)
+        teachers_by_id[link.teacher_id] = link.teacher
         if link.session_id == session.id:
             source_teachers[link.teacher_id] = link.teacher
-    ordered_source_teachers = tuple(sorted(source_teachers.values(), key=lambda teacher: teacher.teacher_no))
+    for session_id, teacher_ids in (overlay_teachers or {}).items():
+        teachers_by_session[session_id] = set(teacher_ids)
+    if source_teacher_ids is not None:
+        missing_teachers = set(source_teacher_ids) - set(teachers_by_id)
+        if missing_teachers:
+            teachers_by_id.update(
+                {teacher.id: teacher for teacher in TeacherProfile.objects.filter(pk__in=missing_teachers)}
+            )
+    if source_teacher_ids is None:
+        ordered_source_teachers = tuple(sorted(source_teachers.values(), key=lambda teacher: teacher.teacher_no))
+        source_teacher_ids = {teacher.id for teacher in ordered_source_teachers}
+    else:
+        ordered_source_teachers = tuple(
+            sorted(
+                (teachers_by_id[teacher_id] for teacher_id in source_teacher_ids if teacher_id in teachers_by_id),
+                key=lambda teacher: teacher.teacher_no,
+            )
+        )
 
     # Load all relevant enrolment intervals in one query.  Student numbers are
     # joined here because coverage keys use them, but they are never returned.
-    offering_ids = {offering.id, *(occupied.offering_id for occupied in occupancy_sessions)}
+    if source_offering_ids is None:
+        source_offering_ids = {offering.id}
+    offering_ids = {
+        *source_offering_ids,
+        *(occupied.offering_id for occupied in occupancy_sessions),
+        *(overlay.offering_id for overlay in (overlay_sessions or ())),
+    }
     enrollment_rows = list(
         Enrollment.objects.filter(
             offering_id__in=offering_ids,
@@ -776,29 +877,34 @@ def _load_evaluation_data(
     # offering we need its own active students, not students from other
     # offerings that happen to overlap the target window.
     source_student_ids: set[UUID] = set()
-    for interval in enrolments_by_offering.get(offering.id, ()):
-        if any(interval.active_on(day) for day in target_days):
-            source_student_ids.add(interval.student_id)
+    for offering_id in source_offering_ids:
+        for interval in enrolments_by_offering.get(offering_id, ()):
+            if any(interval.active_on(day) for day in target_days):
+                source_student_ids.add(interval.student_id)
 
-    person_blocks = list(
-        PersonBlock.objects.filter(
-            Q(teacher_id__in=source_teacher_ids) | Q(student_id__in=source_student_ids),
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        ).order_by("start_at", "id")
+    person_blocks_query = PersonBlock.objects.filter(
+        Q(teacher_id__in=source_teacher_ids) | Q(student_id__in=source_student_ids),
+        start_at__lt=search_end,
+        end_at__gt=search_start,
     )
+    if replaced_person_block_ids:
+        person_blocks_query = person_blocks_query.exclude(pk__in=replaced_person_block_ids)
+    person_blocks = list(person_blocks_query.order_by("start_at", "id"))
+    person_blocks.extend(overlay_person_blocks or ())
     person_blocks_by_day: dict[date, list[PersonBlock]] = defaultdict(list)
     for block in person_blocks:
         for day in covered_local_days(block.start_at, block.end_at):
             person_blocks_by_day[day].append(block)
 
-    room_blocks = list(
-        RoomBlock.objects.filter(
-            classroom_id__in=[classroom.id for classroom in classrooms],
-            start_at__lt=search_end,
-            end_at__gt=search_start,
-        ).order_by("start_at", "id")
+    room_blocks_query = RoomBlock.objects.filter(
+        classroom_id__in=[classroom.id for classroom in classrooms],
+        start_at__lt=search_end,
+        end_at__gt=search_start,
     )
+    if replaced_room_block_ids:
+        room_blocks_query = room_blocks_query.exclude(pk__in=replaced_room_block_ids)
+    room_blocks = list(room_blocks_query.order_by("start_at", "id"))
+    room_blocks.extend(overlay_room_blocks or ())
     room_blocks_by_day_room: dict[tuple[date, UUID], list[RoomBlock]] = defaultdict(list)
     for block in room_blocks:
         for day in covered_local_days(block.start_at, block.end_at):
@@ -823,6 +929,7 @@ def _load_evaluation_data(
         occupancy_by_day={day: tuple(rows) for day, rows in occupancy_by_day.items()},
         occupancy_by_day_room={key: tuple(rows) for key, rows in occupancy_by_day_room.items()},
         teachers_by_session=dict(teachers_by_session),
+        teachers_by_id=teachers_by_id,
         source_teachers=ordered_source_teachers,
         enrolments_by_offering=dict(enrolments_by_offering),
         student_numbers=student_numbers,
@@ -830,18 +937,31 @@ def _load_evaluation_data(
         room_blocks_by_day_room={key: tuple(rows) for key, rows in room_blocks_by_day_room.items()},
         coverage=coverage,
         required_equipment=frozenset(offering.required_equipment or ()),
+        excluded_session_id=excluded_session_id,
     )
 
 
 class _TargetEvaluator:
-    """The single target-evaluation algorithm used by B30 and B31."""
+    """The single target-evaluation algorithm used by B30, B31 and imports."""
 
-    def __init__(self, data: _EvaluationData) -> None:
+    def __init__(
+        self,
+        data: _EvaluationData,
+        *,
+        policy: str = POLICY_RESCHEDULE,
+        start_at_override: datetime | None = None,
+        end_at_override: datetime | None = None,
+    ) -> None:
         self.data = data
         self.session = data.session
         self.offering = self.session.offering
         self.term = data.term
         self.tzinfo = ZoneInfo(self.term.timezone)
+        self.policy = policy
+        self.import_policy = policy == POLICY_IMPORT
+        self.start_at_override = start_at_override
+        self.end_at_override = end_at_override
+        self.excluded_session_id = data.excluded_session_id
         self.source_teacher_ids = {teacher.id for teacher in data.source_teachers}
         self._active_students_cache: dict[tuple[UUID, date], set[UUID]] = {}
         self.source_students_by_day = {day: self._active_students(self.offering.id, day) for day in data.target_days}
@@ -894,35 +1014,43 @@ class _TargetEvaluator:
             day=day,
             start_period=start_period,
             end_period=end_period,
+            require_same_span=not self.import_policy,
+            require_same_block=not self.import_policy,
         )
         if geometry_error is not None:
             return self._not_allowed(geometry_error, start_at=start_at, end_at=end_at)
+        if self.import_policy and (self.start_at_override is not None or self.end_at_override is not None):
+            start_at = self.start_at_override or start_at
+            end_at = self.end_at_override or end_at
+            if start_at is None or end_at is None or end_at <= start_at:
+                return self._not_allowed("导入目标时间无效。", start_at=start_at, end_at=end_at)
 
         if teaching_week(self.term, day) is None:
             return self._not_allowed(
                 "目标日期不在学期教学周内。", start_at=start_at, end_at=end_at, field_name="target_date"
             )
-        if not allow_weekend and day.weekday() >= 5:
-            return self._not_allowed(
-                "目标日期是周末，当前不允许周末调课。",
-                start_at=start_at,
-                end_at=end_at,
-                field_name="target_date",
-            )
-        if day in self.data.exception_dates:
-            return self._not_allowed(
-                "目标日期存在校历例外，不能作为调课目标。",
-                start_at=start_at,
-                end_at=end_at,
-                field_name="target_date",
-            )
-        if start_at <= now:
-            return self._not_allowed(
-                "目标开始时间必须晚于当前时间。",
-                start_at=start_at,
-                end_at=end_at,
-                field_name="target_date",
-            )
+        if not self.import_policy:
+            if not allow_weekend and day.weekday() >= 5:
+                return self._not_allowed(
+                    "目标日期是周末，当前不允许周末调课。",
+                    start_at=start_at,
+                    end_at=end_at,
+                    field_name="target_date",
+                )
+            if day in self.data.exception_dates:
+                return self._not_allowed(
+                    "目标日期存在校历例外，不能作为调课目标。",
+                    start_at=start_at,
+                    end_at=end_at,
+                    field_name="target_date",
+                )
+            if start_at <= now:
+                return self._not_allowed(
+                    "目标开始时间必须晚于当前时间。",
+                    start_at=start_at,
+                    end_at=end_at,
+                    field_name="target_date",
+                )
         if classroom.school_id != self.term.school_id:
             return self._not_allowed(
                 "目标教室必须与学期属于同一学校。",
@@ -930,7 +1058,7 @@ class _TargetEvaluator:
                 end_at=end_at,
                 field_name="target_classroom_id",
             )
-        if not classroom.is_active:
+        if not self.import_policy and not classroom.is_active:
             return self._not_allowed(
                 "目标教室已停用，不能作为调课目标。",
                 start_at=start_at,
@@ -940,12 +1068,13 @@ class _TargetEvaluator:
 
         source_local_start = self.session.start_at.astimezone(self.tzinfo)
         source_day = source_local_start.date()
-        if (
+        same_target = (
             day == source_day
             and start_period == self.session.start_period
             and end_period == self.session.end_period
             and classroom.id == self.session.classroom_id
-        ):
+        )
+        if same_target and not self.import_policy:
             return self._not_allowed(
                 "目标与当前课次完全相同，无需调课。",
                 start_at=start_at,
@@ -953,7 +1082,7 @@ class _TargetEvaluator:
             )
 
         source_students = self.source_students_by_day.get(day, set())
-        if classroom.capacity < len(source_students):
+        if not self.import_policy and classroom.capacity < len(source_students):
             return self._not_allowed(
                 f"教室容量不足：目标日有效选课 {len(source_students)} 人，教室容量 {classroom.capacity} 人。",
                 start_at=start_at,
@@ -961,7 +1090,7 @@ class _TargetEvaluator:
                 field_name="target_classroom_id",
             )
         missing_equipment = self.data.required_equipment - set(classroom.equipment or ())
-        if missing_equipment:
+        if not self.import_policy and missing_equipment:
             missing_text = "、".join(sorted(missing_equipment))
             return self._not_allowed(
                 f"教室缺少必需设备：{missing_text}。",
@@ -970,17 +1099,25 @@ class _TargetEvaluator:
                 field_name="target_classroom_id",
             )
 
-        common = self._common_for(day, start_period, end_period)
+        common = self._common_for(
+            day,
+            start_period,
+            end_period,
+            start_at_override=start_at if self.import_policy else None,
+            end_at_override=end_at if self.import_policy else None,
+        )
         common_conflicts, common_conflict_reasons, common_missing_data, student_conflict_count = common
 
         classroom_conflicts: list[ConflictDetail] = []
         for occupied in self.data.occupancy_by_day_room.get((day, classroom.id), ()):
+            if occupied.id == self.excluded_session_id:
+                continue
             if _overlaps(start_at, end_at, occupied.start_at, occupied.end_at):
                 classroom_conflicts.append(
                     ConflictDetail(
                         category=CONFLICT_CLASSROOM,
                         session_id=occupied.id,
-                        course_name=occupied.offering.course.name,
+                        course_name=_occupancy_course_name(occupied),
                     )
                 )
 
@@ -1034,14 +1171,22 @@ class _TargetEvaluator:
             detail=detail,
         )
 
-    def _common_for(self, day: date, start_period: int, end_period: int) -> tuple:
+    def _common_for(
+        self,
+        day: date,
+        start_period: int,
+        end_period: int,
+        *,
+        start_at_override: datetime | None = None,
+        end_at_override: datetime | None = None,
+    ) -> tuple:
         """Teacher/student conflicts and non-room coverage for one time slot.
 
         Cached because B30 evaluates every classroom of a slot; the cache is
         keyed by the exact slot, not by candidate id, so the result is identical
         to evaluating one target in isolation.
         """
-        key = (day, start_period, end_period)
+        key = (day, start_period, end_period, start_at_override, end_at_override)
         if key in self._common_cache:
             return self._common_cache[key]
 
@@ -1052,8 +1197,13 @@ class _TargetEvaluator:
             day=day,
             start_period=start_period,
             end_period=end_period,
+            require_same_span=not self.import_policy,
+            require_same_block=not self.import_policy,
         )
         assert geometry_error is None and start_at is not None and end_at is not None
+        if start_at_override is not None or end_at_override is not None:
+            start_at = start_at_override or start_at
+            end_at = end_at_override or end_at
         source_students = self.source_students_by_day.get(day, set())
         source_students_for_coverage = tuple(
             sorted(
@@ -1067,6 +1217,8 @@ class _TargetEvaluator:
         conflicting_student_ids: set[UUID] = set()
 
         for occupied in self.data.occupancy_by_day.get(day, ()):
+            if occupied.id == self.excluded_session_id:
+                continue
             if not _overlaps(start_at, end_at, occupied.start_at, occupied.end_at):
                 continue
             if self.data.teachers_by_session.get(occupied.id, set()) & self.source_teacher_ids:
@@ -1074,7 +1226,7 @@ class _TargetEvaluator:
                     ConflictDetail(
                         category=CONFLICT_TEACHER,
                         session_id=occupied.id,
-                        course_name=occupied.offering.course.name,
+                        course_name=_occupancy_course_name(occupied),
                     )
                 )
 
@@ -1085,7 +1237,7 @@ class _TargetEvaluator:
                     ConflictDetail(
                         category=CONFLICT_STUDENT,
                         session_id=occupied.id,
-                        course_name=occupied.offering.course.name,
+                        course_name=_occupancy_course_name(occupied),
                         student_count=len(overlap_students),
                     )
                 )
@@ -1128,6 +1280,153 @@ class _TargetEvaluator:
         return result
 
 
+def evaluate_import_targets(
+    requests: list[ImportEvaluationRequest],
+    *,
+    periods: dict[int, Period],
+    now: datetime,
+    replaced_session_ids: set[UUID] | None = None,
+    occupancy_targets: list[ImportOccupancyTarget] | None = None,
+    replaced_room_block_ids: set[UUID] | None = None,
+    overlay_room_blocks: list[RoomBlock] | None = None,
+    replaced_person_block_ids: set[UUID] | None = None,
+    overlay_person_blocks: list[PersonBlock] | None = None,
+) -> dict[UUID, TargetEvaluation]:
+    """Evaluate many import targets against one preloaded snapshot per term.
+
+    The query count depends on the number of affected terms/windows, not on the
+    number of moved/restored sessions.  It reuses the exact B30 loader and
+    :class:`_TargetEvaluator` algorithm with ``policy=POLICY_IMPORT``.
+
+    All requests are treated as the batch's final target occupancy while their
+    previous database rows are removed from the snapshot.  This makes two
+    sessions moving into the same slot visible to each other, and stops a slot
+    that another session is vacating from looking occupied.  Commit calls it
+    again with only the writes that will actually be applied, so kept sessions
+    remain at their old slots.
+    """
+    if django_timezone.is_naive(now):
+        raise ValueError("now must be a timezone-aware datetime")
+    if not requests:
+        return {}
+
+    if replaced_session_ids is None:
+        replaced_session_ids = {request.session.id for request in requests}
+    if occupancy_targets is None:
+        default_session_ids = {request.session.id for request in requests}
+        default_teachers: dict[UUID, set[UUID]] = defaultdict(set)
+        for session_id, teacher_id in SessionTeacher.objects.filter(session_id__in=default_session_ids).values_list(
+            "session_id", "teacher_id"
+        ):
+            default_teachers[session_id].add(teacher_id)
+        occupancy_targets = [
+            ImportOccupancyTarget(
+                id=request.session.id,
+                offering_id=request.session.offering_id,
+                start_at=request.start_at,
+                end_at=request.end_at,
+                classroom_id=request.classroom.id,
+                teacher_ids=tuple(
+                    request.teacher_ids
+                    if request.teacher_ids is not None
+                    else default_teachers.get(request.session.id, set())
+                ),
+                status=request.status,
+                course_name=request.session.offering.offering_code,
+            )
+            for request in requests
+        ]
+
+    by_term: dict[UUID, list[ImportEvaluationRequest]] = defaultdict(list)
+    for request in requests:
+        by_term[request.session.offering.term_id].append(request)
+
+    overlay_sessions: list[ClassSession] = []
+    overlay_teachers: dict[UUID, set[UUID]] = {}
+    source_teacher_ids: set[UUID] = set()
+    for target in occupancy_targets:
+        overlay_teachers[target.id] = set(target.teacher_ids)
+        source_teacher_ids.update(target.teacher_ids)
+        overlay = ClassSession(
+            id=target.id,
+            offering_id=target.offering_id,
+            start_at=target.start_at,
+            end_at=target.end_at,
+            classroom_id=target.classroom_id,
+            status=target.status,
+        )
+        overlay.course_name = target.course_name
+        overlay_sessions.append(overlay)
+    all_offering_ids = {request.session.offering_id for request in requests} | {
+        target.offering_id for target in occupancy_targets
+    }
+
+    results: dict[UUID, TargetEvaluation] = {}
+    for term_requests in by_term.values():
+        first = term_requests[0]
+        term = first.session.offering.term
+        tzinfo = ZoneInfo(term.timezone)
+        target_days = tuple(sorted({request.day for request in term_requests}))
+        search_start = datetime.combine(target_days[0], time.min, tzinfo=tzinfo)
+        search_end = datetime.combine(target_days[-1] + timedelta(days=1), time.min, tzinfo=tzinfo)
+        classrooms = {request.classroom.id: request.classroom for request in term_requests}
+        source_session_ids = {request.session.id for request in term_requests}
+        exception_dates = set(CalendarException.objects.filter(term=term).values_list("date", flat=True))
+        data = _load_evaluation_data(
+            first.session,
+            periods=periods,
+            exception_dates=exception_dates,
+            target_days=target_days,
+            search_start=search_start,
+            search_end=search_end,
+            classrooms=tuple(classrooms.values()),
+            source_offering_ids=all_offering_ids,
+            source_teacher_ids=source_teacher_ids,
+            extra_session_ids=source_session_ids,
+            keep_source_session=True,
+            replaced_session_ids=replaced_session_ids,
+            overlay_sessions=overlay_sessions,
+            overlay_teachers=overlay_teachers,
+            replaced_room_block_ids=replaced_room_block_ids,
+            overlay_room_blocks=overlay_room_blocks,
+            replaced_person_block_ids=replaced_person_block_ids,
+            overlay_person_blocks=overlay_person_blocks,
+        )
+        for request in term_requests:
+            teacher_ids = overlay_teachers.get(request.session.id, set())
+            source_teachers = tuple(
+                sorted(
+                    (
+                        data.teachers_by_id[teacher_id]
+                        for teacher_id in teacher_ids
+                        if teacher_id in data.teachers_by_id
+                    ),
+                    key=lambda teacher: teacher.teacher_no,
+                )
+            )
+            target_data = replace(
+                data,
+                session=request.session,
+                source_teachers=source_teachers,
+                required_equipment=frozenset(request.session.offering.required_equipment or ()),
+                excluded_session_id=request.session.id,
+            )
+            evaluator = _TargetEvaluator(
+                target_data,
+                policy=POLICY_IMPORT,
+                start_at_override=request.start_at,
+                end_at_override=request.end_at,
+            )
+            results[request.session.id] = evaluator.evaluate(
+                start_period=request.start_period,
+                end_period=request.end_period,
+                day=request.day,
+                classroom=request.classroom,
+                now=now,
+            )
+    return results
+
+
 def evaluate_target(
     session: ClassSession,
     *,
@@ -1137,6 +1436,10 @@ def evaluate_target(
     classroom: Classroom,
     now: datetime,
     allow_weekend: bool = False,
+    policy: str = POLICY_RESCHEDULE,
+    periods: dict[int, Period] | None = None,
+    start_at_override: datetime | None = None,
+    end_at_override: datetime | None = None,
 ) -> TargetEvaluation:
     """Evaluate one exact target with a constant number of queries.
 
@@ -1144,15 +1447,25 @@ def evaluate_target(
     :class:`_TargetEvaluator` over one preloaded snapshot so candidate loops do
     not issue per-candidate queries.  The source session is excluded from all
     occupancy checks, exactly as in B30.
+
+    ``policy=POLICY_IMPORT`` is the B12 entry point: it skips only the
+    reschedule policy conditions (future time, weekend, calendar-exception day,
+    period block, unchanged target, capacity/equipment, source status) and keeps
+    the teacher/student/classroom conflict calculation.  ``periods`` and the
+    start/end overrides let the preview evaluate the *effective* period times
+    from the batch before they are written.  The defaults are the unchanged
+    B30/B31 behaviour.
     """
     if django_timezone.is_naive(now):
         raise ValueError("now must be a timezone-aware datetime")
 
-    _check_source_status(session)
+    if policy != POLICY_IMPORT:
+        _check_source_status(session)
     offering = session.offering
     term = offering.term
     tzinfo = ZoneInfo(term.timezone)
-    periods = {period.period_number: period for period in Period.objects.filter(term=term)}
+    if periods is None:
+        periods = {period.period_number: period for period in Period.objects.filter(term=term)}
     exception_dates = set(CalendarException.objects.filter(term=term).values_list("date", flat=True))
 
     # A whole local day is loaded even for an invalid target; this keeps the
@@ -1169,7 +1482,12 @@ def evaluate_target(
         search_end=search_end,
         classrooms=(classroom,),
     )
-    evaluator = _TargetEvaluator(data)
+    evaluator = _TargetEvaluator(
+        data,
+        policy=policy,
+        start_at_override=start_at_override,
+        end_at_override=end_at_override,
+    )
     return evaluator.evaluate(
         start_period=start_period,
         end_period=end_period,

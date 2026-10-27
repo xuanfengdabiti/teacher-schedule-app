@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, BaseUserManager
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -59,6 +61,23 @@ class UserManager(BaseUserManager["User"]):
         return self._create_user(email, password, **extra_fields)
 
 
+def avatar_upload_to(instance: User, filename: str) -> str:
+    """Store avatars under a per-user random name.
+
+    Avatars share ``MEDIA_ROOT`` with private import files; the API never
+    exposes ``MEDIA_URL``.  A random file name also means replacing an avatar
+    never overwrites a file that another user's browser has cached.
+    """
+    suffix = Path(filename).suffix.lower()
+    return f"avatars/{instance.pk}/{uuid.uuid4().hex}{suffix}"
+
+
+class FontSize(models.TextChoices):
+    SYSTEM = "system", _("跟随系统")
+    LARGE = "large", _("大")
+    EXTRA_LARGE = "extra_large", _("特大")
+
+
 class User(AbstractUser):
     """Custom User model.
 
@@ -72,6 +91,13 @@ class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None  # type: ignore[assignment]
     email = models.EmailField(_("邮箱地址"), unique=True)
+    avatar = models.ImageField(
+        _("头像"),
+        upload_to=avatar_upload_to,
+        null=True,
+        blank=True,
+        help_text="仅通过已认证的 /api/v1/me/avatar/ 读取，不公开 MEDIA_ROOT。",
+    )
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
@@ -94,6 +120,58 @@ class User(AbstractUser):
         if self.email:
             self.email = normalize_user_email(self.email)
         super().save(*args, **kwargs)
+
+
+class UserPreferences(models.Model):
+    """Per-account personal settings.
+
+    Kept on a one-to-one row instead of the user table so the many columns
+    (and their defaults) stay isolated from authentication, and so a pending
+    account has preferences even before a TeacherProfile exists.  The API
+    always creates the row on first read; every field has a usable default and
+    PATCH only writes explicitly submitted fields.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="preferences",
+        verbose_name=_("用户"),
+    )
+    font_size = models.CharField(
+        _("字号"),
+        max_length=16,
+        choices=FontSize.choices,
+        default=FontSize.SYSTEM,
+    )
+    local_reminder_enabled = models.BooleanField(_("本地上课提醒"), default=True)
+    local_reminder_minutes = models.PositiveSmallIntegerField(
+        _("提前分钟数"),
+        default=15,
+        validators=[MinValueValidator(0), MaxValueValidator(180)],
+    )
+    preferred_term = models.ForeignKey(
+        "academics.Term",
+        on_delete=models.SET_NULL,
+        related_name="preferred_by_users",
+        verbose_name=_("首选学期"),
+        null=True,
+        blank=True,
+        help_text="为空表示跟随当前学期。",
+    )
+    push_enabled = models.BooleanField(_("远程推送总开关"), default=True)
+    push_schedule_changed = models.BooleanField(_("推送到课表变更"), default=True)
+    push_handoff = models.BooleanField(_("推送教学交接"), default=True)
+    push_inquiry = models.BooleanField(_("推送失物协查"), default=True)
+    push_plan = models.BooleanField(_("推送教学计划提醒"), default=True)
+    updated_at = models.DateTimeField(_("更新时间"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("个人设置")
+        verbose_name_plural = _("个人设置")
+
+    def __str__(self) -> str:
+        return f"{self.user_id} 的个人设置"
 
 
 class TeacherClaimStatus(models.TextChoices):
