@@ -15,8 +15,15 @@ from rest_framework.views import APIView
 
 from apps.accounts.services import require_active_teacher
 from apps.classrooms.models import Classroom
-from apps.classrooms.selectors import USAGE_NOTICE, classroom_usage_for_day, classrooms_for_school
+from apps.classrooms.selectors import (
+    USAGE_NOTICE,
+    classroom_usage_for_day,
+    classrooms_for_school,
+    free_classrooms_for_school,
+)
 from apps.classrooms.serializers import (
+    ClassroomAvailabilityQuerySerializer,
+    ClassroomAvailabilityResponseSerializer,
     ClassroomQuerySerializer,
     ClassroomSerializer,
     ClassroomUsageErrorSerializer,
@@ -75,6 +82,77 @@ class ClassroomListView(APIView):
         paginator = ClassroomPagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
         return paginator.get_paginated_response(ClassroomSerializer(page, many=True).data)
+
+
+class ClassroomAvailabilityView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(
+        operation_id="classrooms_availability",
+        summary="查询某时段空闲教室",
+        description=(
+            "查询 [start_time, end_time) 同一本地日内没有已知占用的启用教室。"
+            "排除非 cancelled 的 ClassSession 和 RoomBlock 重叠；边界相接不算占用。"
+            "available 表示 classroom_schedule 与 room_blocks 覆盖完整；缺覆盖但无已知占用的"
+            "结果为 unverified，不能当作空教室。available_count/unverified_count 为分页前计数。"
+        ),
+        parameters=[
+            ClassroomAvailabilityQuerySerializer,
+            OpenApiParameter(
+                name="page",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="分页页码。",
+            ),
+        ],
+        responses={200: ClassroomAvailabilityResponseSerializer, 400: ClassroomUsageErrorSerializer, 403: None},
+    )
+    def get(self, request: Request) -> Response:
+        teacher = require_active_teacher(request.user)
+        query = ClassroomAvailabilityQuerySerializer(data=request.query_params)
+        if not query.is_valid():
+            return _validation_error(query)
+
+        result = free_classrooms_for_school(
+            teacher.school_id,
+            day=query.validated_data["date"],
+            start_time=query.validated_data["start_time"],
+            end_time=query.validated_data["end_time"],
+            q=query.validated_data.get("q", ""),
+            campus=query.validated_data.get("campus", ""),
+            building=query.validated_data.get("building", ""),
+            min_capacity=query.validated_data.get("min_capacity"),
+        )
+        paginator = ClassroomPagination()
+        page = paginator.paginate_queryset(list(result.items), request, view=self)
+        rows = [
+            {
+                "id": item.classroom.id,
+                "classroom_code": item.classroom.classroom_code,
+                "campus": item.classroom.campus,
+                "building": item.classroom.building,
+                "room_no": item.classroom.room_no,
+                "capacity": item.classroom.capacity,
+                "is_active": item.classroom.is_active,
+                "availability": item.availability,
+                "data_completeness": item.data_completeness,
+            }
+            for item in page
+        ]
+        payload = {
+            "date": result.day,
+            "start_time": result.start_time.strftime("%H:%M"),
+            "end_time": result.end_time.strftime("%H:%M"),
+            "checked_at": result.checked_at,
+            "available_count": result.available_count,
+            "unverified_count": result.unverified_count,
+            "count": len(result.items),
+            "next": paginator.get_next_link(),
+            "previous": paginator.get_previous_link(),
+            "results": rows,
+        }
+        return Response(ClassroomAvailabilityResponseSerializer(payload).data)
 
 
 class ClassroomUsageView(APIView):

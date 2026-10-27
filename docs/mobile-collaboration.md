@@ -15,6 +15,7 @@ import 'package:teacher_schedule/features/collaboration/inquiry_compose_page.dar
 import 'package:teacher_schedule/features/collaboration/inquiry_list_page.dart';
 import 'package:teacher_schedule/features/collaboration/inquiry_detail_page.dart';
 import 'package:teacher_schedule/features/collaboration/notification_list_page.dart';
+import 'package:teacher_schedule/features/free_rooms/free_rooms_page.dart';
 ```
 
 | 页面 | 构造函数 | 用途 |
@@ -22,7 +23,8 @@ import 'package:teacher_schedule/features/collaboration/notification_list_page.d
 | `ReschedulePage` | `ReschedulePage({required ApiClient api, required String sessionId})` | 查询候选时段、提交调课申请 |
 | `RescheduleRequestsPage` | `RescheduleRequestsPage({required ApiClient api})` | 我的申请、草稿提交、撤回 |
 | `ClassroomSearchPage` | `ClassroomSearchPage({required ApiClient api})` | 教室搜索入口，点结果进入使用记录 |
-| `ClassroomUsagePage` | `ClassroomUsagePage({required ApiClient api, required String classroomId})` | 某日教室使用记录、教师联系方式、发起协查 |
+| `ClassroomUsagePage` | `ClassroomUsagePage({required ApiClient api, required String classroomId, DateTime? initialDate})` | 某日教室使用记录、教师联系方式、发起协查；`initialDate` 用于从空教室结果保留查询日期 |
+| `FreeRoomsPage` | `FreeRoomsPage({required ApiClient api})` | 空教室查询：日期/时段/搜索条件、空闲与待核验结果、分页加载 |
 | `InquiryComposePage` | `InquiryComposePage({required ApiClient api, required String classroomId})` | 选择时段与收件人并发起失物协查 |
 | `InquiryListPage` | `InquiryListPage({required ApiClient api})` | 收到/我发起的协查列表 |
 | `InquiryDetailPage` | `InquiryDetailPage({required ApiClient api, required String inquiryId})` | 标记已读、追加回复、发起人结案 |
@@ -47,11 +49,23 @@ import 'package:teacher_schedule/features/collaboration/notification_list_page.d
 
 ### 2. 教室
 
+- 功能页“常用工具”新增独立整行入口 **空教室查询**；原“教室查询”改名为 **教室历史**，仍进入 `ClassroomSearchPage`，原功能不变。
 - 搜索：`GET classrooms/?q=...`，输入 300ms 防抖；成功后保留当前旧列表直至新数据返回。
 - 使用记录：`GET classrooms/{id}/usage/?date=YYYY-MM-DD`，日期前后切换或日期选择，展示 `session`、`cancelled_session`、`moved_out`、`room_block` 条目。
 - 页面固定展示“排定课程记录，不代表实际到场或物品去向。”；不把排课记录解释为实际到场。
 - 教师联系方式：仅在 `has_visible_contact` 为真时请求 `GET teachers/{id}/contact/`。只展示接口返回且 `*_status=visible` 的字段；微信/电话均用 Flutter `Clipboard` 复制，电话标注“仅复制，不拨号”，没有新增拨号依赖。
 - “发起失物协查”进入 `InquiryComposePage`。
+
+#### 空教室查询
+
+- 入口：功能页“常用工具”的整行 **空教室查询**，对应 `FreeRoomsPage(api: api)`；不新增 router 依赖。
+- 请求：`GET classrooms/availability/`，查询参数为 `date`、`start_time`、`end_time`，可选 `q`、`campus`、`building`、`min_capacity`，以及 DRF 的 `page`。默认今天 `08:00–09:40`，首次进入自动按默认条件查询；也允许选择历史日期。
+- 页面区分 **空闲** 与 **待核验**，计数直接使用接口的 `available_count`、`unverified_count`；待核验不写成“空教室”或已确认空闲。
+- 结果按接口分页，点“加载更多”请求下一页，并按教室 id 去重；卡片显示教室代码、位置、容量、空闲/待核验状态。
+- 修改日期、时间、搜索词、校区、楼宇或最小容量后，旧结果立即清空并提示重新查询，避免把旧结果伪装成新条件的结果。
+- 查询按钮固定在页面底部，键盘弹出时仍保持可见；表单和结果区域独立滚动。
+- 点结果进入 `ClassroomUsagePage(..., initialDate: 查询日期)`，因此打开的是所查询日期的教室历史，不是固定今天。
+- 页面只读：不预约、不审批、不修改课表，也不显示接口内部参数名或版本字段。
 
 ### 3. 失物协查
 
@@ -117,6 +131,7 @@ Navigator.of(context).push(
 
 - 所有请求在 `initState` 或用户动作中发起，`build` 不发请求。
 - 搜索 300ms 防抖；`ClassroomSearchPage` 和列表刷新保留旧内容并显示顶部进度条；刷新失败用 SnackBar 提示。
+- 空教室筛选条件一旦变化就清空旧结果，避免旧数据对应新条件；查询按钮固定在底部，表单在键盘弹出时仍可滚动。
 - 列表使用稳定 `ValueKey`；消息分页按 id 去重；没有新增依赖。
 - 主题沿用 `buildAppTheme()` 的浅蓝绿 Material 3 风格；页面在 `MaterialApp` 下直接使用。
 - 日期展示为本地时间；提交给后端的日期时间为 `YYYY-MM-DD` 或带 `+08:00` 等本地偏移的 ISO 字符串。
@@ -130,10 +145,19 @@ D:\tools\flutter\bin\flutter.bat analyze lib/features/collaboration test/feature
 D:\tools\flutter\bin\flutter.bat test test/features/collaboration
 ```
 
-结果：analyze 无问题；3 个合同测试通过：
+结果：analyze 无问题；3 个协作合同测试通过：
 
 1. 已知冲突时段不能选中提交（选中可用时段后按钮才启用）；
 2. 协查只提交勾选的 `recipient_ids`；
 3. 消息加载更多不会重复请求同一游标。
 
-未做：整 App 构建、真机/Android 模拟器手测、主路由接线、与真实后端账号的端到端联调。主工程其他并行页面未改动。
+空教室新增 3 个测试：
+
+```powershell
+D:\tools\flutter\bin\flutter.bat analyze lib/features/free_rooms test/features/free_rooms lib/features/offerings/features_page.dart lib/features/collaboration/classroom_usage_page.dart
+D:\tools\flutter\bin\flutter.bat test test/features/free_rooms
+```
+
+覆盖查询日期/时间/容量/分页参数、空闲/待核验渲染、点击结果按查询日期打开教室历史。
+
+未做：整 App 构建、真机/Android 模拟器手测、与真实后端账号的端到端联调。主工程其他并行页面未改动。

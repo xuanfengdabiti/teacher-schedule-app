@@ -2,6 +2,8 @@
 
 截至 2026-10-27，本仓库包含 Django 后端、Flutter 移动端、本地演示启动脚本与虚构模板。优先使用成熟包实现账号、网络、存储、路由、管理后台与表格读取；教师业务按本项目接口实现。未复制第三方 App 源码；候选及其许可证核查见[开源调研](docs/open-source-research.md)。
 
+空教室查询复用既有 Django ORM、课次/教室占用/数据覆盖选择器和 Flutter Material 日期、时间控件，未新增第三方依赖或数据库表。
+
 ## 默认候选
 
 Flutter、Riverpod、go_router、Dio、flutter_secure_storage 与 SharedPreferences 已实际使用并完成 Android APK 构建。Drift、calendar_view、flutter_local_notifications 与个推插件仍只是原方案候选，未引入当前本地演示版。真实 SMTP、远程推送与 iOS 构建不在本次验收范围。

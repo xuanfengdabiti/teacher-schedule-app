@@ -8,6 +8,7 @@ import '../../shared/status_views.dart';
 import '../collaboration/classroom_search_page.dart';
 import '../collaboration/inquiry_list_page.dart';
 import '../collaboration/reschedule_requests_page.dart';
+import '../free_rooms/free_rooms_page.dart';
 import '../schedule/models.dart';
 import '../schedule/schedule_controller.dart';
 import '../teaching/handoff_list_page.dart';
@@ -146,6 +147,20 @@ class _QuickActions extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: _QuickTile(
+                key: const Key('freeRoomsEntry'),
+                icon: Icons.event_available_outlined,
+                label: '空教室查询',
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(
+                    builder: (context) => FreeRoomsPage(api: api),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
                 final width = (constraints.maxWidth - 10) / 2;
@@ -185,7 +200,7 @@ class _QuickActions extends StatelessWidget {
                       child: _QuickTile(
                         key: const Key('classroomSearchEntry'),
                         icon: Icons.meeting_room_outlined,
-                        label: '教室查询',
+                        label: '教室历史',
                         onTap: () => Navigator.of(context).push<void>(
                           MaterialPageRoute(
                             builder: (context) => ClassroomSearchPage(api: api),

@@ -15,10 +15,12 @@ class ClassroomUsagePage extends StatefulWidget {
     super.key,
     required this.api,
     required this.classroomId,
+    this.initialDate,
   });
 
   final ApiClient api;
   final String classroomId;
+  final DateTime? initialDate;
 
   @override
   State<ClassroomUsagePage> createState() => _ClassroomUsagePageState();
@@ -34,8 +36,8 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _date = DateTime(now.year, now.month, now.day);
+    final initial = widget.initialDate ?? DateTime.now();
+    _date = DateTime(initial.year, initial.month, initial.day);
     _load();
   }
 

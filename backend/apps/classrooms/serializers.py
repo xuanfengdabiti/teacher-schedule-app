@@ -5,6 +5,8 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from apps.classrooms.selectors import (
+    AVAILABILITY_AVAILABLE,
+    AVAILABILITY_UNVERIFIED,
     DATA_COMPLETE,
     DATA_INCOMPLETE,
     ENTRY_CANCELLED_SESSION,
@@ -93,6 +95,50 @@ class ClassroomQuerySerializer(serializers.Serializer):
 
 class ClassroomUsageQuerySerializer(serializers.Serializer):
     date = serializers.DateField(required=True)
+
+
+class ClassroomAvailabilityQuerySerializer(serializers.Serializer):
+    date = serializers.DateField(required=True)
+    start_time = serializers.TimeField(required=True, input_formats=["%H:%M"])
+    end_time = serializers.TimeField(required=True, input_formats=["%H:%M"])
+    q = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    campus = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    building = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    min_capacity = serializers.IntegerField(required=False, min_value=0)
+
+    def validate(self, attrs):
+        if attrs["end_time"] <= attrs["start_time"]:
+            raise serializers.ValidationError({"end_time": ["结束时间必须晚于开始时间。"]})
+        return attrs
+
+
+class ClassroomAvailabilityItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    classroom_code = serializers.CharField()
+    campus = serializers.CharField()
+    building = serializers.CharField()
+    room_no = serializers.CharField()
+    capacity = serializers.IntegerField()
+    is_active = serializers.BooleanField()
+    availability = serializers.ChoiceField(choices=(AVAILABILITY_AVAILABLE, AVAILABILITY_UNVERIFIED))
+    # Keep this plain text: the same field name is also used by the reschedule
+    # options contract with a different value set, and a third enum name makes
+    # the generated schema ambiguous.  Values are documented as
+    # complete|incomplete and asserted by the API tests.
+    data_completeness = serializers.CharField()
+
+
+class ClassroomAvailabilityResponseSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    start_time = serializers.CharField()
+    end_time = serializers.CharField()
+    checked_at = serializers.DateTimeField()
+    available_count = serializers.IntegerField()
+    unverified_count = serializers.IntegerField()
+    count = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = ClassroomAvailabilityItemSerializer(many=True)
 
 
 class ClassroomUsageErrorSerializer(serializers.Serializer):

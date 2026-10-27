@@ -492,6 +492,34 @@ def _scope_complete_for_any(coverage: _CoverageLookup, kind: str, keys: tuple[st
     return any(coverage.scope_complete(kind, key, day) for key in keys)
 
 
+def classroom_codes_coverage_complete(*, school_id: UUID, classroom_codes: list[str], day: date) -> dict[str, bool]:
+    """Batch form of :func:`classroom_day_coverage_complete`.
+
+    Free-room listings evaluate many rooms at one date.  Fetching coverage once
+    and matching in memory keeps the query count independent of room count.
+    """
+    kinds = (CoverageKind.CLASSROOM_SCHEDULE, CoverageKind.ROOM_BLOCKS)
+    codes = sorted({code for code in classroom_codes if code})
+    if not codes:
+        return {}
+    scope_keys = [f"classroom:{code}" for code in codes]
+    rows = list(
+        DataCoverage.objects.filter(
+            school_id=school_id,
+            kind__in=kinds,
+            from_date__lte=day,
+            until_date__gt=day,
+        )
+        .filter(Q(scope_key="school") | Q(scope_key__in=scope_keys))
+        .values_list("kind", "scope_key", "from_date", "until_date", "completeness")
+    )
+    coverage = _CoverageLookup(rows)
+    return {
+        code: all(_scope_complete_for_any(coverage, kind, ("school", f"classroom:{code}"), day) for kind in kinds)
+        for code in codes
+    }
+
+
 def classroom_day_coverage_complete(*, school_id: UUID, classroom_code: str, day: date) -> bool:
     """Whether B30's coverage rules prove room schedule and blocks complete.
 
@@ -500,18 +528,11 @@ def classroom_day_coverage_complete(*, school_id: UUID, classroom_code: str, day
     blank scope is never treated as complete.  ``school`` or the classroom's
     own ``classroom:{code}`` scope may supply the declaration.
     """
-    kinds = (CoverageKind.CLASSROOM_SCHEDULE, CoverageKind.ROOM_BLOCKS)
-    rows = list(
-        DataCoverage.objects.filter(
-            school_id=school_id,
-            kind__in=kinds,
-            from_date__lte=day,
-            until_date__gt=day,
-        ).values_list("kind", "scope_key", "from_date", "until_date", "completeness")
-    )
-    coverage = _CoverageLookup(rows)
-    keys = ("school", f"classroom:{classroom_code}")
-    return all(_scope_complete_for_any(coverage, kind, keys, day) for kind in kinds)
+    return classroom_codes_coverage_complete(
+        school_id=school_id,
+        classroom_codes=[classroom_code],
+        day=day,
+    ).get(classroom_code, False)
 
 
 def _scope_complete_for_all(
