@@ -83,6 +83,15 @@ APK：`mobile/build/app/outputs/flutter-apk/app-release.apk`（当前约 44 MB�
 
 空教室查询按现有课表与临时占用记录筛选，有课、维修或其他占用的教室会被排除；没有完整数据的结果显示“需确认”。接口与规则见 [空教室查询](classroom-availability.md)。演示环境可能保留此前验收的交接确认、失物询问结案等操作，可按上方清空说明重新初始化。
 
+教师甲 2026-10-28 的网络安全、电子数据取证卡片已有两条简短备注，打开“今天”即可录制直接展示。它们保存于对应上一课次的本人草稿，不要求登记学时或共享。重建演示数据后可单独补充：
+
+```powershell
+docker cp scripts/seed_demo_note_previews.py teacher-schedule-demo-api-1:/tmp/seed_demo_note_previews.py
+docker exec teacher-schedule-demo-api-1 python /tmp/seed_demo_note_previews.py --date 2026-10-28
+```
+
+脚本只给该日最多两门本人课程的上一课次补空备注，已有草稿或共享内容会跳过，重复运行不新增。空教室查询采用满宽底部按钮；全 App 关闭边缘拉伸装饰，普通滚动和下拉刷新保留。
+
 ## 个人资料与字号
 
 “我的”页可进入“编辑资料”“修改密码”和“字号设置”。资料与字号保存到当前账号，改密成功后重新登录；详细操作见[个人资料、密码与字号](demo-personal-settings.md)。快捷填入使用上方固定演示密码，演示改密可用教师甲，结束后恢复原密码。

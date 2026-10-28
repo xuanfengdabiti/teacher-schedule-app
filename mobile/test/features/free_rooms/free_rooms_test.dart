@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:teacher_schedule/app.dart';
 import 'package:teacher_schedule/app/theme.dart';
 import 'package:teacher_schedule/core/network/api_client.dart';
 import 'package:teacher_schedule/core/storage/token_store.dart';
@@ -120,6 +121,82 @@ void main() {
     expect(query['page'], 2);
     expect(result.availableCount, 1);
     expect(result.results.single.classroomCode, 'A101');
+  });
+
+  testWidgets('底部查询栏满宽白底，窄屏按钮不缩成小块', (tester) async {
+    final api = _FakeApiClient(
+      onGet: (path, _) async => _response(_pagePayload(withUnverified: false)),
+    );
+    tester.view.physicalSize = const Size(360, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(_app(FreeRoomsPage(api: api)));
+    await tester.pumpAndSettle();
+
+    final bar = find.byKey(const ValueKey('free-rooms-query-bar'));
+    final button = find.byKey(const ValueKey('free-rooms-search'));
+    expect(bar, findsOneWidget);
+    expect(button, findsOneWidget);
+
+    final barRect = tester.getRect(bar);
+    final buttonRect = tester.getRect(button);
+    expect(barRect.width, closeTo(360, 0.5), reason: '查询栏白底铺满屏宽');
+    expect(buttonRect.width, closeTo(360 - 32, 0.5), reason: '按钮左右各留 16');
+    expect(
+      barRect.top,
+      greaterThan(tester.getRect(find.byType(RefreshIndicator)).bottom - 1),
+      reason: '查询栏固定在列表下方',
+    );
+  });
+
+  testWidgets('全局关闭 overscroll 拉伸，下拉刷新仍会重新查询', (tester) async {
+    var calls = 0;
+    final api = _FakeApiClient(
+      onGet: (path, _) async {
+        calls++;
+        return _response(_pagePayload(withUnverified: false));
+      },
+    );
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    late BuildContext captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        scrollBehavior: appScrollBehavior,
+        home: Builder(
+          builder: (context) {
+            captured = context;
+            return FreeRoomsPage(api: api);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The behavior returns the child untouched, so no stretching decoration.
+    const probe = SizedBox(key: ValueKey('overscroll-probe'));
+    final wrapped = appScrollBehavior.buildOverscrollIndicator(
+      captured,
+      probe,
+      const ScrollableDetails(direction: AxisDirection.down),
+    );
+    expect(wrapped, same(probe), reason: '不套任何 overscroll 拉伸装饰');
+
+    expect(calls, 1);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 320),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(calls, 2, reason: '下拉刷新仍触发查询');
+    expect(find.byType(RefreshIndicator), findsOneWidget);
   });
 
   testWidgets('空闲和需确认使用不同状态渲染', (tester) async {

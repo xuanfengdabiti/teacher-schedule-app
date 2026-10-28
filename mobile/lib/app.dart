@@ -6,6 +6,13 @@ import 'app/router.dart';
 import 'app/theme.dart';
 import 'features/profile/font_size_controller.dart';
 
+/// Android Material 3 stretches edge content by default, which warps text and
+/// cards at the end of a list. Keep normal scrolling and pull-to-refresh but
+/// drop only the overscroll decoration.
+final appScrollBehavior = const MaterialScrollBehavior().copyWith(
+  overscroll: false,
+);
+
 class TeacherScheduleApp extends ConsumerWidget {
   const TeacherScheduleApp({super.key});
 
@@ -16,6 +23,7 @@ class TeacherScheduleApp extends ConsumerWidget {
       title: '教师课表',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
+      scrollBehavior: appScrollBehavior,
       locale: const Locale('zh', 'CN'),
       supportedLocales: const [Locale('zh', 'CN')],
       localizationsDelegates: const [

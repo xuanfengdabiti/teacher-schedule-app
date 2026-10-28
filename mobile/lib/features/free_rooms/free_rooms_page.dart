@@ -274,6 +274,7 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('空教室查询')),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_loading) const LinearProgressIndicator(minHeight: 2),
           Expanded(
@@ -561,12 +562,13 @@ class _FreeRoomsPageState extends State<FreeRoomsPage> {
 
   Widget _buildQueryBar(BuildContext context) {
     return Material(
+      key: const ValueKey('free-rooms-query-bar'),
       color: Colors.white,
       elevation: 8,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: FilledButton.icon(
             key: const ValueKey('free-rooms-search'),
             onPressed: _loading ? null : _search,
