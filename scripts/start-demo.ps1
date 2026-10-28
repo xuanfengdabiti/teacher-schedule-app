@@ -26,6 +26,7 @@ $seedFile = Join-Path $repoRoot "scripts/seed_demo.py"
 $seedExtraFile = Join-Path $repoRoot "scripts/seed_demo_extra.py"
 $seedTeamFile = Join-Path $repoRoot "scripts/seed_demo_team.py"
 $seedTeamExtraFile = Join-Path $repoRoot "scripts/seed_demo_team_extra.py"
+$seedActivityFile = Join-Path $repoRoot "scripts/seed_demo_activity.py"
 $templatesDir = Join-Path $repoRoot "templates/import"
 $projectName = "teacher-schedule-demo"
 $apiUrl = "http://127.0.0.1:18000/api/v1/"
@@ -61,6 +62,9 @@ if (-not (Test-Path $seedTeamFile)) {
 }
 if (-not (Test-Path $seedTeamExtraFile)) {
     throw "缺少演示团队整周课程种子脚本：$seedTeamExtraFile"
+}
+if (-not (Test-Path $seedActivityFile)) {
+    throw "缺少演示活动数据脚本：$seedActivityFile"
 }
 if (-not (Test-Path $templatesDir)) {
     throw "缺少导入模板目录：$templatesDir"
@@ -98,6 +102,7 @@ Invoke-DemoCompose @("cp", $seedFile, "api:/tmp/seed_demo.py")
 Invoke-DemoCompose @("cp", $seedExtraFile, "api:/tmp/seed_demo_extra.py")
 Invoke-DemoCompose @("cp", $seedTeamFile, "api:/tmp/seed_demo_team.py")
 Invoke-DemoCompose @("cp", $seedTeamExtraFile, "api:/tmp/seed_demo_team_extra.py")
+Invoke-DemoCompose @("cp", $seedActivityFile, "api:/tmp/seed_demo_activity.py")
 
 Write-Host "==> 导入虚构课表并创建演示样例（重复启动会跳过已有数据）"
 Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < /tmp/seed_demo.py")
@@ -110,6 +115,9 @@ Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < 
 
 Write-Host "==> 为李/张/王三位老师补充整周课程（重复启动只补缺失）"
 Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < /tmp/seed_demo_team_extra.py")
+
+Write-Host "==> 补充教学计划、历史完课与少量教师活动（重复启动只补缺失）"
+Invoke-DemoCompose @("exec", "-T", "api", "sh", "-c", "python manage.py shell < /tmp/seed_demo_activity.py")
 
 Write-Host ""
 Write-Host "演示环境已就绪：$apiUrl"
