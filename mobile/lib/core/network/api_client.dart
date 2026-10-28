@@ -67,6 +67,14 @@ class ApiClient {
     }
   }
 
+  Future<Response<dynamic>> patch(String path, {Object? data}) async {
+    try {
+      return await _dio.patch<dynamic>(path, data: data);
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
   Future<void> _attachToken(
     RequestOptions options,
     RequestInterceptorHandler handler,

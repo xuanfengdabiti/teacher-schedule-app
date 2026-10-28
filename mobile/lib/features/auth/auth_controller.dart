@@ -153,6 +153,20 @@ class AuthController extends Notifier<SessionState> {
     }
   }
 
+  /// Applies a complete Me returned by a successful profile update.
+  void replaceMe(Me me) {
+    _apply(me);
+  }
+
+  /// Sign-out after a password change. The server already revoked every
+  /// refresh token, so this only clears local login material and tells the
+  /// login page why. It never depends on the calling page staying mounted.
+  Future<void> signOutAfterPasswordChange() async {
+    ref.read(passwordChangedNoticeProvider.notifier).mark();
+    _set(const SessionState.signedOut());
+    await _tokens.clear();
+  }
+
   Future<void> logout() async {
     final refresh = await _tokens.readRefresh();
     _set(const SessionState.signedOut());
@@ -205,6 +219,23 @@ class DemoImportReplay extends Notifier<bool> {
 final demoImportReplayProvider = NotifierProvider<DemoImportReplay, bool>(
   DemoImportReplay.new,
 );
+
+/// One-shot notice shown on the login page after a successful password change.
+class PasswordChangedNotice extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void mark() {
+    state = true;
+  }
+
+  void clear() {
+    state = false;
+  }
+}
+
+final passwordChangedNoticeProvider =
+    NotifierProvider<PasswordChangedNotice, bool>(PasswordChangedNotice.new);
 
 /// True when the active teacher still has no completed import marker for the
 /// current normalized API address, account and term.

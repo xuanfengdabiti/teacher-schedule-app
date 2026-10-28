@@ -6,6 +6,7 @@ import '../features/auth/account_status_page.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/login_page.dart';
 import '../features/offerings/features_page.dart';
+import '../features/profile/password_change_page.dart';
 import '../features/profile/profile_page.dart';
 import '../features/schedule/import_page.dart';
 import '../features/schedule/session_detail_page.dart';
@@ -96,6 +97,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/password',
+        builder: (context, state) => const PasswordChangePage(),
       ),
       GoRoute(
         path: '/sessions/:id',

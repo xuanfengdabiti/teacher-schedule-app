@@ -10,6 +10,7 @@ import 'config/api_config.dart';
 import 'network/api_client.dart';
 import 'network/session_expiry_bus.dart';
 import 'storage/import_record_store.dart';
+import 'storage/preferences_store.dart';
 import 'storage/settings_repository.dart';
 import 'storage/token_store.dart';
 
@@ -29,6 +30,10 @@ final draftStoreProvider = Provider<DraftStore>(
 
 final importRecordStoreProvider = Provider<ImportRecordStore>(
   (ref) => ImportRecordStore(ref.watch(sharedPreferencesProvider)),
+);
+
+final preferencesStoreProvider = Provider<PreferencesStore>(
+  (ref) => PreferencesStore(ref.watch(sharedPreferencesProvider)),
 );
 
 final sessionExpiryProvider = Provider<SessionExpiryBus>((ref) {

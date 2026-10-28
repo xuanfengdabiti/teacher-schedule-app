@@ -91,6 +91,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final passwordChanged = ref.watch(passwordChangedNoticeProvider);
+    if (passwordChanged) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('密码已修改，请重新登录。')));
+        ref.read(passwordChangedNoticeProvider.notifier).clear();
+      });
+    }
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(

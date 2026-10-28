@@ -34,6 +34,8 @@ class TeacherProfile {
     required this.department,
     required this.phone,
     required this.wechat,
+    this.phoneVisibility = 'private',
+    this.wechatVisibility = 'private',
   });
 
   final String teacherNo;
@@ -42,6 +44,8 @@ class TeacherProfile {
   final String department;
   final String phone;
   final String wechat;
+  final String phoneVisibility;
+  final String wechatVisibility;
 
   String get name => displayName.isNotEmpty ? displayName : formalName;
 
@@ -53,6 +57,8 @@ class TeacherProfile {
       department: jsonString(json['department']) ?? '',
       phone: jsonString(json['phone']) ?? '',
       wechat: jsonString(json['wechat']) ?? '',
+      phoneVisibility: jsonString(json['phone_visibility']) ?? 'private',
+      wechatVisibility: jsonString(json['wechat_visibility']) ?? 'private',
     );
   }
 }

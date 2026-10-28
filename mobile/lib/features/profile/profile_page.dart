@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
 import '../auth/auth_controller.dart';
+import 'font_size_page.dart';
+import 'profile_edit_page.dart';
 
 class ProfilePage extends ConsumerStatefulWidget {
   const ProfilePage({super.key});
@@ -143,14 +146,74 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   Text('教师资料', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   _ProfileRow(label: '工号', value: teacher?.teacherNo ?? '—'),
+                  _ProfileRow(label: '正式姓名', value: teacher?.formalName ?? '—'),
+                  _ProfileRow(label: '显示名', value: teacher?.displayName ?? '—'),
                   _ProfileRow(label: '院系', value: teacher?.department ?? '—'),
+                  _ProfileRow(
+                    label: '电话',
+                    value: _contactValue(
+                      teacher?.phone,
+                      teacher?.phoneVisibility,
+                    ),
+                  ),
+                  _ProfileRow(
+                    label: '微信',
+                    value: _contactValue(
+                      teacher?.wechat,
+                      teacher?.wechatVisibility,
+                    ),
+                  ),
                   _ProfileRow(
                     label: '当前学期',
                     value: me.currentTerm?.name ?? '未设置',
                     last: true,
                   ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('editProfileButton'),
+                      onPressed: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (context) => const ProfileEditPage(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      label: const Text('编辑资料'),
+                    ),
+                  ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  key: const Key('fontSizeEntry'),
+                  leading: const Icon(
+                    Icons.format_size_rounded,
+                    color: appTeal,
+                  ),
+                  title: const Text('字号设置'),
+                  subtitle: const Text('调整全 App 的阅读字号'),
+                  trailing: const Icon(Icons.chevron_right, color: appMuted),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => const FontSizePage(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  key: const Key('passwordChangeEntry'),
+                  leading: const Icon(Icons.lock_outline, color: appTeal),
+                  title: const Text('修改密码'),
+                  trailing: const Icon(Icons.chevron_right, color: appMuted),
+                  onTap: () => context.push('/password'),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 14),
@@ -190,6 +253,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   static String _initial(String name) {
     final trimmed = name.trim();
     return trimmed.isEmpty ? '师' : trimmed.substring(0, 1);
+  }
+
+  static String _contactValue(String? value, String? visibility) {
+    if (value == null || value.isEmpty) {
+      return '未填写';
+    }
+    final label = contactVisibilityOptions[visibility] ?? '仅本人';
+    return '$value（$label）';
   }
 
   static String _teacherStatusLabel(String status) => switch (status) {

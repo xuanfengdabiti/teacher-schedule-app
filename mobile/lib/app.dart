@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/router.dart';
 import 'app/theme.dart';
+import 'features/profile/font_size_controller.dart';
 
 class TeacherScheduleApp extends ConsumerWidget {
   const TeacherScheduleApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final fontChoice = ref.watch(fontSizeControllerProvider);
     return MaterialApp.router(
       title: '教师课表',
       debugShowCheckedModeBanner: false,
@@ -21,6 +23,21 @@ class TeacherScheduleApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
+      builder: (context, child) {
+        // Following the system keeps the platform scaler untouched (including
+        // non-linear scaling). Large choices add exactly one extra factor.
+        if (fontChoice == 'system') {
+          return child ?? const SizedBox.shrink();
+        }
+        final media = MediaQuery.of(context);
+        final scale = textScaleForFontSize(fontChoice);
+        return MediaQuery(
+          data: media.copyWith(
+            textScaler: TextScaler.linear(media.textScaler.scale(1.0) * scale),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       routerConfig: ref.watch(routerProvider),
     );
   }

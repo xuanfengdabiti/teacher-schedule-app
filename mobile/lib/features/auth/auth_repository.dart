@@ -35,4 +35,50 @@ class AuthRepository {
     }
     await _api.post('auth/logout/', data: {'refresh': refresh});
   }
+
+  Future<Me> updateProfile({
+    required String displayName,
+    required String department,
+    required String phone,
+    required String phoneVisibility,
+    required String wechat,
+    required String wechatVisibility,
+  }) async {
+    final response = await _api.patch(
+      'me/',
+      data: {
+        'display_name': displayName,
+        'department': department,
+        'phone': phone,
+        'phone_visibility': phoneVisibility,
+        'wechat': wechat,
+        'wechat_visibility': wechatVisibility,
+      },
+    );
+    return Me.fromJson(jsonMap(response.data));
+  }
+
+  Future<void> changePassword({
+    required String oldPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    await _api.post(
+      'auth/password/change/',
+      data: {
+        'old_password': oldPassword,
+        'new_password1': newPassword,
+        'new_password2': confirmPassword,
+      },
+    );
+  }
+
+  Future<String> fetchFontSize() async {
+    final response = await _api.get('me/preferences/');
+    return jsonString(jsonMap(response.data)['font_size']) ?? 'system';
+  }
+
+  Future<void> updateFontSize(String value) async {
+    await _api.patch('me/preferences/', data: {'font_size': value});
+  }
 }
