@@ -45,12 +45,17 @@ class ImportController extends Notifier<ImportState> {
     return const ImportState(phase: ImportPhase.idle);
   }
 
-  Future<void> start() async {
+  Future<void> start({String? teacherNo}) async {
     if (_busy) {
       return;
     }
     _busy = true;
     final runId = ++_runId;
+    // Teacher 0001 gets a slightly slower demo import; everyone else keeps
+    // the original pace/course data and bootstrap request.
+    final localStepDuration = teacherNo?.trim() == '0001'
+        ? const Duration(milliseconds: 883)
+        : stepDuration;
     state = const ImportState(phase: ImportPhase.running);
 
     ImportSummary? summary;
@@ -66,13 +71,13 @@ class ImportController extends Notifier<ImportState> {
     }();
 
     for (var step = 1; step < 3; step++) {
-      await Future<void>.delayed(stepDuration);
+      await Future<void>.delayed(localStepDuration);
       if (_disposed || runId != _runId) {
         return;
       }
       state = ImportState(phase: ImportPhase.running, step: step);
     }
-    await Future<void>.delayed(stepDuration);
+    await Future<void>.delayed(localStepDuration);
     await request;
     if (_disposed || runId != _runId) {
       return;

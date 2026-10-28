@@ -23,9 +23,17 @@ class _ImportPageState extends ConsumerState<ImportPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ref.read(importControllerProvider.notifier).start();
+        _startImport();
       }
     });
+  }
+
+  void _startImport() {
+    ref
+        .read(importControllerProvider.notifier)
+        .start(
+          teacherNo: ref.read(authControllerProvider).me?.teacher?.teacherNo,
+        );
   }
 
   Future<void> _enterSchedule() async {
@@ -77,11 +85,7 @@ class _ImportPageState extends ConsumerState<ImportPage> {
                       onEnter: _enterSchedule,
                     )
                   else
-                    _ProgressBody(
-                      state: state,
-                      onRetry: () =>
-                          ref.read(importControllerProvider.notifier).start(),
-                    ),
+                    _ProgressBody(state: state, onRetry: _startImport),
                   const SizedBox(height: 24),
                   const Text(
                     '演示模式 · 使用示例课表',
