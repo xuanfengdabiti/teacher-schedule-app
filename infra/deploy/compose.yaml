@@ -31,6 +31,11 @@ x-api-environment: &api-environment
   EMAIL_USE_TLS: "${EMAIL_USE_TLS:-true}"
   DEFAULT_FROM_EMAIL: "${DEFAULT_FROM_EMAIL:-教师课程表 <noreply@example.invalid>}"
   APP_LINK_BASE: "${APP_LINK_BASE:-teacherschedule://}"
+  # AI 备课：key 缺省为空，功能返回“未配置”，不影响普通课表。
+  TEACHING_AI_API_BASE_URL: "${TEACHING_AI_API_BASE_URL:-https://api.deepseek.com}"
+  TEACHING_AI_MODEL: "${TEACHING_AI_MODEL:-deepseek-flash}"
+  TEACHING_AI_API_KEY: "${TEACHING_AI_API_KEY:-}"
+  TEACHING_AI_TIMEOUT_SECONDS: "${TEACHING_AI_TIMEOUT_SECONDS:-45}"
 
 services:
   api:

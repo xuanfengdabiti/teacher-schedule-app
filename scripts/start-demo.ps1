@@ -20,6 +20,8 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repoRoot "infra/deploy/compose.yaml"
 $envFile = Join-Path $repoRoot "infra/deploy/.env.demo"
+# 可选的本机 AI 配置（已 gitignore）；不存在时普通课表照常启动。
+$aiEnvFile = Join-Path $repoRoot "infra/deploy/.env.ai.local"
 $seedFile = Join-Path $repoRoot "scripts/seed_demo.py"
 $seedExtraFile = Join-Path $repoRoot "scripts/seed_demo_extra.py"
 $seedTeamFile = Join-Path $repoRoot "scripts/seed_demo_team.py"
@@ -31,9 +33,14 @@ $healthUrl = $apiUrl + "health/"
 
 function Invoke-DemoCompose {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$ComposeArgs)
-    & docker compose -p $projectName --env-file $envFile -f $composeFile @ComposeArgs
+    $envArgs = @("--env-file", $envFile)
+    if (Test-Path $aiEnvFile) {
+        # 后者覆盖同名变量；只在确实存在时加载，不打印文件内容。
+        $envArgs += @("--env-file", $aiEnvFile)
+    }
+    & docker compose -p $projectName @envArgs -f $composeFile @ComposeArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "docker compose 命令失败（退出码 $LASTEXITCODE）：docker compose -p $projectName --env-file `"$envFile`" -f `"$composeFile`" $($ComposeArgs -join ' ')"
+        throw "docker compose 命令失败（退出码 $LASTEXITCODE）：docker compose -p $projectName $($envArgs -join ' ') -f `"$composeFile`" $($ComposeArgs -join ' ')"
     }
 }
 

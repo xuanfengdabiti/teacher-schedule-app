@@ -8,6 +8,8 @@ import '../../core/network/api_client.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
 import '../collaboration/reschedule_page.dart';
+import '../preparation/preparation_page.dart';
+import '../preparation/preparation_repository.dart';
 import '../teaching/completion_page.dart';
 import '../teaching/handoff_compose_page.dart';
 import '../teaching/teaching_plan_page.dart';
@@ -309,6 +311,20 @@ class _SessionActions extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          key: const Key('openPreparationButton'),
+          onPressed: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (context) => PreparationPage(
+                api: PreparationRepository(api),
+                sessionId: session.id,
+              ),
+            ),
+          ),
+          icon: const Icon(Icons.auto_awesome),
+          label: const Text('AI备课'),
         ),
       ],
     );

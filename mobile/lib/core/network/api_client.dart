@@ -59,6 +59,24 @@ class ApiClient {
     }
   }
 
+  /// Same contract as [post] but with a per-request receive timeout for slow
+  /// operations. The client-wide default (20s) is intentionally untouched.
+  Future<Response<dynamic>> postWithTimeout(
+    String path, {
+    Object? data,
+    required Duration receiveTimeout,
+  }) async {
+    try {
+      return await _dio.post<dynamic>(
+        path,
+        data: data,
+        options: Options(receiveTimeout: receiveTimeout),
+      );
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
   Future<Response<dynamic>> put(String path, {Object? data}) async {
     try {
       return await _dio.put<dynamic>(path, data: data);

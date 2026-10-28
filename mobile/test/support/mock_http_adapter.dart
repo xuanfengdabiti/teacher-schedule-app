@@ -10,13 +10,15 @@ class RecordedRequest {
       path = options.uri.path,
       query = Map<String, dynamic>.from(options.queryParameters),
       headers = Map<String, dynamic>.from(options.headers),
-      data = options.data;
+      data = options.data,
+      receiveTimeout = options.receiveTimeout;
 
   final String method;
   final String path;
   final Map<String, dynamic> query;
   final Map<String, dynamic> headers;
   final Object? data;
+  final Duration? receiveTimeout;
 
   Map<String, dynamic> get bodyAsMap =>
       data is Map ? Map<String, dynamic>.from(data as Map) : const {};

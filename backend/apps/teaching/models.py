@@ -68,6 +68,55 @@ class TeachingNote(TimeStampedUUIDModel):
         return f"{self.session_id} / {self.author_id} v{self.version}"
 
 
+class LessonPreparation(TimeStampedUUIDModel):
+    """One editable AI-assisted preparation draft per session teacher.
+
+    The row is private to its author, independent of ``TeachingNote``: saving a
+    preparation never publishes, never changes hours and never appears on the
+    timetable cards.  ``generated_model`` stays internal for support; teachers
+    only see the four editable sections.
+    """
+
+    session = models.ForeignKey(
+        ClassSession,
+        on_delete=models.PROTECT,
+        related_name="lesson_preparations",
+        verbose_name=_("课次"),
+    )
+    teacher = models.ForeignKey(
+        TeacherProfile,
+        on_delete=models.PROTECT,
+        related_name="lesson_preparations",
+        verbose_name=_("教师"),
+    )
+    topic = models.CharField(_("本节主题"), max_length=200)
+    outline = models.TextField(_("授课提纲"), blank=True, default="")
+    case_study = models.TextField(_("课堂案例"), blank=True, default="")
+    discussion_questions = models.TextField(_("讨论问题"), blank=True, default="")
+    preparation = models.TextField(_("课前准备"), blank=True, default="")
+    generated_model = models.CharField(_("生成模型"), max_length=100, blank=True, default="")
+    generated_at = models.DateTimeField(_("生成时间"), null=True, blank=True)
+    version = models.PositiveIntegerField(_("版本"), default=1)
+
+    class Meta:
+        verbose_name = _("备课草稿")
+        verbose_name_plural = _("备课草稿")
+        ordering = ("session", "teacher")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "teacher"],
+                name="teach_prep_session_teacher_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(version__gte=1),
+                name="teach_prep_version_positive",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.session_id} / {self.teacher_id} v{self.version}"
+
+
 class HandoffStatus(models.TextChoices):
     PENDING = "pending", _("待确认")
     ACKNOWLEDGED = "acknowledged", _("已确认")
