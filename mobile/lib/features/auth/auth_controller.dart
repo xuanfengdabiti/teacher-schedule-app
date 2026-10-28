@@ -70,6 +70,22 @@ class AuthController extends Notifier<SessionState> {
   TokenStore get _tokens => ref.read(tokenStoreProvider);
   AuthRepository get _repository => ref.read(authRepositoryProvider);
 
+  /// Clears the demo import marker for this account and term when the login
+  /// page asked to replay the first-import presentation.
+  Future<void> _applyDemoReplay(Me me) async {
+    if (!ref.read(demoImportReplayProvider)) {
+      return;
+    }
+    ref.read(demoImportReplayProvider.notifier).set(false);
+    final termId = me.currentTerm?.id;
+    if (termId == null || termId.isEmpty) {
+      return;
+    }
+    await ref
+        .read(importRecordStoreProvider)
+        .clear(baseUrl: _settings.apiBaseUrl, accountId: me.id, termId: termId);
+  }
+
   Future<void> _restore() async {
     final access = await _tokens.readAccess();
     final refresh = await _tokens.readRefresh();
@@ -114,6 +130,7 @@ class AuthController extends Notifier<SessionState> {
       final tokens = await _repository.login(email: email, password: password);
       await _tokens.save(access: tokens.access, refresh: tokens.refresh);
       final me = await _repository.me();
+      await _applyDemoReplay(me);
       _apply(me);
     } catch (_) {
       await _tokens.clear();
@@ -174,3 +191,35 @@ final currentTeacherIdProvider = Provider<String?>(
   (ref) =>
       ref.watch(authControllerProvider.select((session) => session.me?.id)),
 );
+
+/// Set by the login page's lightweight demo switch before submitting.
+class DemoImportReplay extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) {
+    state = value;
+  }
+}
+
+final demoImportReplayProvider = NotifierProvider<DemoImportReplay, bool>(
+  DemoImportReplay.new,
+);
+
+/// True when the active teacher still has no completed import marker for the
+/// current normalized API address, account and term.
+final needsFirstImportProvider = Provider<bool>((ref) {
+  final session = ref.watch(authControllerProvider);
+  final me = session.me;
+  final termId = me?.currentTerm?.id;
+  if (session.phase != SessionPhase.active ||
+      me == null ||
+      termId == null ||
+      termId.isEmpty) {
+    return false;
+  }
+  final settings = ref.watch(settingsRepositoryProvider);
+  return !ref
+      .watch(importRecordStoreProvider)
+      .isDone(baseUrl: settings.apiBaseUrl, accountId: me.id, termId: termId);
+});

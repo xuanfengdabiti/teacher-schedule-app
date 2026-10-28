@@ -1,5 +1,6 @@
 import '../../core/json.dart';
 import '../../core/network/api_client.dart';
+import 'import_summary.dart';
 import 'models.dart';
 
 class ScheduleRepository {
@@ -34,6 +35,12 @@ class ScheduleRepository {
   Future<Session> fetchSession(String sessionId) async {
     final response = await _api.get('sessions/$sessionId/');
     return Session.fromJson(jsonMap(response.data));
+  }
+
+  /// Reads the existing demo bootstrap payload and keeps only display counts.
+  Future<ImportSummary> fetchBootstrapSummary() async {
+    final response = await _api.get('sync/bootstrap/');
+    return ImportSummary.fromBootstrap(jsonMap(response.data));
   }
 
   Future<TermCalendar> fetchCalendar(String termId) async {

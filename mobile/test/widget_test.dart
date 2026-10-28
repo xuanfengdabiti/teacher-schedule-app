@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -6,9 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teacher_schedule/app.dart';
+import 'package:teacher_schedule/core/config/api_config.dart';
 import 'package:teacher_schedule/core/json.dart';
 import 'package:teacher_schedule/core/providers.dart';
 import 'package:teacher_schedule/core/storage/token_store.dart';
+import 'package:teacher_schedule/features/auth/auth_controller.dart';
 
 import 'support/mock_http_adapter.dart';
 
@@ -24,6 +27,15 @@ class _ContractServer {
   final List<Map<String, dynamic>> savedDraftBodies = [];
   String previousNotePreview = '';
   int notesReadCalls = 0;
+  int bootstrapCalls = 0;
+  bool failBootstrap = false;
+  String currentUserId = 'user-1';
+
+  /// When true the bootstrap response contains another teacher's session too.
+  bool includeForeignSession = false;
+
+  /// When true the bootstrap response also contains a cancelled own session.
+  bool includeCancelledOwnSession = false;
 
   String get baseUrl => 'http://example.test/api/v1/';
 
@@ -36,7 +48,7 @@ class _ContractServer {
   };
 
   Map<String, dynamic> get _me => {
-    'id': 'user-1',
+    'id': currentUserId,
     'email': 'teacher@example.com',
     'email_verified': true,
     'teacher_status': 'active',
@@ -44,8 +56,8 @@ class _ContractServer {
     'current_term': _term,
     'teacher': {
       'teacher_no': 'T001',
-      'formal_name': '王老师',
-      'display_name': '王老师',
+      'formal_name': '李老师',
+      'display_name': '李老师',
       'department': '信息学院',
       'phone': '',
       'phone_visibility': 'private',
@@ -158,6 +170,27 @@ class _ContractServer {
     if (options.method == 'GET' && path.endsWith('/terms/term-1/calendar/')) {
       return jsonResponse(_calendar);
     }
+    if (options.method == 'GET' && path.endsWith('/sync/bootstrap/')) {
+      bootstrapCalls++;
+      if (failBootstrap) {
+        return jsonResponse({'detail': '示例课表暂时不可用。'}, 503);
+      }
+      return jsonResponse({
+        'cursor': '7',
+        'assignment_scope_version': 4,
+        'term': {..._term, 'name': '2025-2026学年第二学期'},
+        'offerings': <Object>[],
+        'sessions': [
+          _sessionSummary,
+          if (includeForeignSession)
+            {..._sessionSummary, 'id': 'session-2', 'is_mine': false},
+          if (includeCancelledOwnSession)
+            {..._sessionSummary, 'id': 'session-3', 'status': 'cancelled'},
+        ],
+        'notes': <Object>[],
+        'generated_at': '2026-03-01T10:00:00+08:00',
+      });
+    }
     if (options.method == 'GET' && path.endsWith('/sessions/')) {
       sessionListCalls++;
       return jsonResponse({
@@ -222,13 +255,17 @@ Future<void> _pumpUntil(
 Future<({_ContractServer server, MemoryTokenStore tokens})> _pumpApp(
   WidgetTester tester, {
   bool signedIn = false,
+  bool importDone = true,
 }) async {
   final server = _ContractServer();
   final tokens = MemoryTokenStore();
   if (signedIn) {
     await tokens.save(access: 'restored-access', refresh: 'restored-refresh');
   }
-  SharedPreferences.setMockInitialValues({'api_base_url': server.baseUrl});
+  SharedPreferences.setMockInitialValues({
+    'api_base_url': server.baseUrl,
+    if (signedIn && importDone) _importDoneKey(server.baseUrl): true,
+  });
   final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
@@ -241,6 +278,12 @@ Future<({_ContractServer server, MemoryTokenStore tokens})> _pumpApp(
     ),
   );
   return (server: server, tokens: tokens);
+}
+
+String _importDoneKey(String baseUrl) {
+  final raw = '${ApiConfig.normalizeBaseUrl(baseUrl)}|user-1|term-1';
+  final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
+  return 'demo_import_done_v1_$encoded';
 }
 
 void main() {
@@ -268,6 +311,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(loginButton);
     await tester.pump();
+
+    // First login for this account/term goes through the demo import page.
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('importDoneTitle')),
+      reason: '首次登录未完成课表演示导入',
+    );
+    expect(server.bootstrapCalls, 1);
+    expect(find.text('李老师'), findsWidgets);
+    await tester.tap(find.byKey(const Key('importEnterButton')));
+    await tester.pump(const Duration(milliseconds: 300));
 
     final sessionCard = find.byKey(const ValueKey('session-session-1'));
     await _pumpUntil(tester, sessionCard, reason: '登录后未显示今日课程');
@@ -347,11 +401,108 @@ void main() {
     );
 
     expect(find.byKey(const Key('loginButton')), findsNothing);
+    expect(find.byKey(const Key('importDoneTitle')), findsNothing);
+    expect(app.server.bootstrapCalls, 0, reason: '已有记录不应重复导入');
     expect(app.server.meCalls, greaterThanOrEqualTo(1));
     final meRequest = app.server.adapter.requests.firstWhere(
       (request) => request.path.endsWith('/me/'),
     );
     expect(meRequest.headers['Authorization'], 'Bearer restored-access');
+  });
+
+  testWidgets('首次导入失败可重试，失败不写成功记录', (tester) async {
+    final app = await _pumpApp(tester, signedIn: true, importDone: false);
+    final server = app.server;
+    server.failBootstrap = true;
+
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('importError')),
+      reason: '失败时未停留在导入页',
+    );
+    expect(find.byKey(const Key('importDoneTitle')), findsNothing);
+    expect(find.byKey(const Key('importRetryButton')), findsOneWidget);
+    expect(server.bootstrapCalls, 1);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(_importDoneKey(server.baseUrl)), isNull);
+
+    server.failBootstrap = false;
+    await tester.tap(find.byKey(const Key('importRetryButton')));
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('importDoneTitle')),
+      reason: '重试后未成功',
+    );
+    expect(server.bootstrapCalls, 2);
+    expect(prefs.getBool(_importDoneKey(server.baseUrl)), isNull);
+
+    await tester.tap(find.byKey(const Key('importEnterButton')));
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('session-session-1')),
+      reason: '点击进入后未到 Today',
+    );
+    expect(prefs.getBool(_importDoneKey(server.baseUrl)), isTrue);
+  });
+
+  testWidgets('首次导入只统计本人未取消课次，进入后同账号再登录跳过', (tester) async {
+    final app = await _pumpApp(tester, signedIn: true, importDone: false);
+    final server = app.server;
+    server.includeForeignSession = true;
+    server.includeCancelledOwnSession = true;
+
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('importDoneTitle')),
+      reason: '未完成首次导入展示',
+    );
+    expect(server.bootstrapCalls, 1);
+    expect(find.text('1 次'), findsOneWidget, reason: '不统计他人的课次');
+    expect(find.text('1 门'), findsOneWidget);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool(_importDoneKey(server.baseUrl)), isNull);
+
+    await tester.tap(find.byKey(const Key('importEnterButton')));
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('session-session-1')),
+      reason: '未进入 Today',
+    );
+    expect(prefs.getBool(_importDoneKey(server.baseUrl)), isTrue);
+
+    // Log out and in again: the saved marker skips the import presentation.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TeacherScheduleApp)),
+    );
+    // logout() performs a real network round-trip and a 4s timeout; run it
+    // outside the fake-async zone so the test does not stall on its timers.
+    await tester.runAsync(
+      () => container.read(authControllerProvider.notifier).logout(),
+    );
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('loginButton')),
+      reason: '退出后未回登录页',
+    );
+    await tester.enterText(
+      find.byKey(const Key('emailField')),
+      'teacher@example.com',
+    );
+    await tester.enterText(
+      find.byKey(const Key('passwordField')),
+      'test-password',
+    );
+    final loginButton = find.byKey(const Key('loginButton'));
+    await tester.ensureVisible(loginButton);
+    await tester.tap(loginButton);
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('session-session-1')),
+      reason: '再次登录未直接进入课表',
+    );
+    expect(server.bootstrapCalls, 1, reason: '已有记录不应再次导入');
+    expect(find.byKey(const Key('importDoneTitle')), findsNothing);
   });
 
   testWidgets('整周总览复用已取周数据，点课程进入详情', (tester) async {

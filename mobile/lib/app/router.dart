@@ -7,6 +7,7 @@ import '../features/auth/auth_controller.dart';
 import '../features/auth/login_page.dart';
 import '../features/offerings/features_page.dart';
 import '../features/profile/profile_page.dart';
+import '../features/schedule/import_page.dart';
 import '../features/schedule/session_detail_page.dart';
 import '../features/schedule/today_page.dart';
 import '../features/schedule/week_page.dart';
@@ -28,11 +29,17 @@ String? _redirect(Ref ref, GoRouterState state) {
   final atSplash = location == '/splash';
   final atLogin = location == '/login';
   final atStatus = location == '/account-status';
+  final atImport = location == '/import';
 
   return switch (session.phase) {
     SessionPhase.loading || SessionPhase.error => atSplash ? null : '/splash',
     SessionPhase.signedOut => atLogin ? null : '/login',
-    SessionPhase.active => (atSplash || atLogin || atStatus) ? '/today' : null,
+    SessionPhase.active =>
+      ref.read(needsFirstImportProvider)
+          ? (atImport ? null : '/import')
+          : (atSplash || atLogin || atStatus || atImport)
+          ? '/today'
+          : null,
     SessionPhase.restricted => atStatus ? null : '/account-status',
   };
 }
@@ -47,6 +54,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (context, state) => const SplashPage()),
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
+      GoRoute(path: '/import', builder: (context, state) => const ImportPage()),
       GoRoute(
         path: '/account-status',
         builder: (context, state) => const AccountStatusPage(),

@@ -27,6 +27,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
   bool _submitting = false;
+  bool _demoReplayImport = false;
   String? _error;
 
   @override
@@ -61,6 +62,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _error = null;
     });
     try {
+      ref.read(demoImportReplayProvider.notifier).set(_demoReplayImport);
       await ref
           .read(authControllerProvider.notifier)
           .login(
@@ -263,6 +265,22 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                           ),
                                         ),
                                       ],
+                                    ),
+                                    CheckboxListTile(
+                                      key: const Key('demoReplayImportSwitch'),
+                                      value: _demoReplayImport,
+                                      onChanged: (value) => setState(
+                                        () =>
+                                            _demoReplayImport = value ?? false,
+                                      ),
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      title: const Text(
+                                        '演示首次导入',
+                                        style: TextStyle(fontSize: 14),
+                                      ),
                                     ),
                                   ],
                                 ),
