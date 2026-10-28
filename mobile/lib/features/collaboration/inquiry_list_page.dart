@@ -5,6 +5,7 @@ import '../../core/network/api_client.dart';
 import '../../shared/status_views.dart';
 import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
+import 'inquiry_compose_page.dart';
 import 'inquiry_detail_page.dart';
 
 class InquiryListPage extends StatefulWidget {
@@ -108,6 +109,17 @@ class InquiryListPageState extends State<InquiryListPage> {
     }
   }
 
+  Future<void> _startInquiry() async {
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => InquiryComposePage(api: widget.api),
+      ),
+    );
+    if (sent == true && mounted) {
+      await refreshSent();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = _items;
@@ -164,7 +176,7 @@ class InquiryListPageState extends State<InquiryListPage> {
                             SizedBox(height: 80),
                             EmptyView(
                               title: '暂无失物消息',
-                              detail: '可以在教室记录中查看使用记录并发起失物询问。',
+                              detail: '点击下方“发起失物询问”直接填写。',
                               icon: Icons.inventory_2_outlined,
                             ),
                           ],
@@ -194,6 +206,25 @@ class InquiryListPageState extends State<InquiryListPage> {
     return Scaffold(
       appBar: AppBar(title: const Text('失物消息')),
       body: content,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: appLine)),
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('inquiryListStartButton'),
+              onPressed: _startInquiry,
+              icon: const Icon(Icons.add_alert_outlined),
+              label: const Text('发起失物询问'),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

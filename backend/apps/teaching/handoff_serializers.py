@@ -168,6 +168,7 @@ class HandoffPrefillRecipientSerializer(serializers.Serializer):
 class HandoffPrefillSerializer(serializers.Serializer):
     recipients = HandoffPrefillRecipientSerializer(many=True)
     suggested_target_session = HandoffSessionSerializer(allow_null=True)
+    suggested_target_teachers = HandoffTeacherSerializer(many=True)
     content = serializers.CharField()
     note_id = serializers.UUIDField(allow_null=True)
     note_published_version = serializers.IntegerField(allow_null=True)

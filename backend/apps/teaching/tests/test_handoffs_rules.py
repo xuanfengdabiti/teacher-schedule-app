@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from apps.notifications.models import Notification, NotificationType
-from apps.scheduling.models import ChangeLog
+from apps.scheduling.models import ChangeLog, ClassSession, SessionStatus, SessionTeacher
 from apps.teaching.models import ClientMutation, Handoff, TeachingNote
 from apps.teaching.tests.handoff_helpers import (
     CRIME_NEXT_DAY,
@@ -375,6 +375,7 @@ def test_prefill_suggests_next_session_teacher_and_published_content(handoff_flo
         "start_period": 1,
         "end_period": 2,
     }
+    assert body["suggested_target_teachers"] == [{"id": str(flow.teacher1.id), "name": "示例教师甲"}]
     assert body["content"] == "未完成内容：\n预填未完成内容\n\n下次计划：\n预填下次计划"
     assert body["note_id"] == str(note.id)
     assert body["note_published_version"] == note.published_version
@@ -388,6 +389,49 @@ def test_prefill_suggests_next_session_teacher_and_published_content(handoff_flo
     )
     assert after == before
     assert Handoff.objects.count() == 0
+
+
+def test_prefill_lists_the_complete_next_session_teacher_roster(handoff_flow):
+    flow = handoff_flow
+    source = crime_source(flow.demo)
+    next_session = next_scheduled_session(source)
+    third = add_teacher(flow.demo, "B21-NEXT-003")
+    SessionTeacher.objects.create(session=next_session, teacher=third)
+    SessionTeacher.objects.create(session=next_session, teacher=flow.teacher2)
+
+    # teacher2 is the sender and is also the actual next-session teacher.
+    response = flow.client2.get(f"/api/v1/handoffs/prefill/?source_session_id={source.id}")
+    assert response.status_code == 200, response.content
+    body = response.json()
+
+    names = {row["name"] for row in body["suggested_target_teachers"]}
+    ids = {row["id"] for row in body["suggested_target_teachers"]}
+    assert names == {"示例教师甲", "示例教师乙", "示例教师B21-NEXT-003"}
+    assert str(flow.teacher2.id) in ids
+    # Recipients still exclude the sender even though the sender teaches next.
+    assert {row["id"] for row in body["recipients"]} == {
+        str(flow.teacher1.id),
+        str(third.id),
+    }
+    assert all(row["is_suggested"] for row in body["recipients"])
+
+
+def test_prefill_reports_no_next_session_without_invented_teachers(handoff_flow):
+    flow = handoff_flow
+    source = (
+        ClassSession.objects.filter(
+            offering=flow.demo.offerings["OFF-CRIME-2026A"],
+            status=SessionStatus.SCHEDULED,
+        )
+        .order_by("-start_at", "-id")
+        .first()
+    )
+
+    response = flow.client1.get(f"/api/v1/handoffs/prefill/?source_session_id={source.id}")
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert body["suggested_target_session"] is None
+    assert body["suggested_target_teachers"] == []
 
 
 def test_prefill_without_published_note_is_empty(handoff_flow):

@@ -15,11 +15,18 @@ class ClassroomSearchPage extends StatefulWidget {
     required this.api,
     this.embedded = false,
     this.onInquirySent,
+    this.onSelect,
+    this.title = '教室记录',
   });
 
   final ApiClient api;
   final bool embedded;
   final VoidCallback? onInquirySent;
+  final String title;
+
+  /// When set, the page is used as a classroom picker: tapping a room returns
+  /// it to the caller instead of opening the usage detail.
+  final ValueChanged<ClassroomItem>? onSelect;
 
   @override
   State<ClassroomSearchPage> createState() => _ClassroomSearchPageState();
@@ -96,6 +103,11 @@ class _ClassroomSearchPageState extends State<ClassroomSearchPage> {
   }
 
   void _openClassroom(ClassroomItem room) {
+    final select = widget.onSelect;
+    if (select != null) {
+      select(room);
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => ClassroomUsagePage(
@@ -226,7 +238,7 @@ class _ClassroomSearchPageState extends State<ClassroomSearchPage> {
       return content;
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('教室记录')),
+      appBar: AppBar(title: Text(widget.title)),
       body: content,
     );
   }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../app/theme.dart';
 import '../../core/network/api_client.dart';
 import 'classroom_search_page.dart';
+import 'inquiry_compose_page.dart';
 import 'inquiry_list_page.dart';
 
 class ClassroomInquiryPage extends StatefulWidget {
@@ -35,6 +37,17 @@ class _ClassroomInquiryPageState extends State<ClassroomInquiryPage>
     }
   }
 
+  Future<void> _startInquiry() async {
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => InquiryComposePage(api: widget.api),
+      ),
+    );
+    if (sent == true && mounted) {
+      _openLostMessages();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -64,6 +77,25 @@ class _ClassroomInquiryPageState extends State<ClassroomInquiryPage>
             refreshToken: _sentAfterInquiry ? 1 : 0,
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: appLine)),
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              key: const Key('hubStartInquiryButton'),
+              onPressed: _startInquiry,
+              icon: const Icon(Icons.add_alert_outlined),
+              label: const Text('发起失物询问'),
+            ),
+          ),
+        ),
       ),
     );
   }

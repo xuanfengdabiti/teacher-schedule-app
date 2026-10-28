@@ -1,6 +1,6 @@
 # 移动端协作功能（M03）
 
-> 本文为模块交接记录。最终主路由已接线，Android release 已实际验收调课提交、教室历史、协查回复结案；调课提交区已改为底部固定。见 [最终验收](local-demo-acceptance.md)。
+> 本文为模块交接记录。最终主路由已接线，当前界面使用“教室与失物 / 教室记录 / 失物消息”等名称；调课提交区固定在底部。实际操作与构建结果见 [最终验收](local-demo-acceptance.md)。
 
 本目录实现调课、教室协查、失物协查和消息中心的可直接使用页面。页面只依赖现有 `ApiClient`，不依赖 Riverpod 全局 provider，不新增 pubspec 依赖，也未改 `main.dart`/router；主路由由 Codex 统一接线。
 
@@ -20,12 +20,13 @@ import 'package:teacher_schedule/features/free_rooms/free_rooms_page.dart';
 
 | 页面 | 构造函数 | 用途 |
 | --- | --- | --- |
+| `ClassroomInquiryPage` | `ClassroomInquiryPage({required ApiClient api})` | 教室记录与失物消息两个页签，底部常驻发起失物询问入口 |
 | `ReschedulePage` | `ReschedulePage({required ApiClient api, required String sessionId})` | 查询候选时段、提交调课申请 |
 | `RescheduleRequestsPage` | `RescheduleRequestsPage({required ApiClient api})` | 我的申请、草稿提交、撤回 |
-| `ClassroomSearchPage` | `ClassroomSearchPage({required ApiClient api})` | 教室搜索入口，点结果进入使用记录 |
+| `ClassroomSearchPage` | `ClassroomSearchPage({required ApiClient api, ValueChanged<ClassroomItem>? onSelect, String title = '教室记录'})` | 默认进入使用记录；传入 `onSelect` 时复用为教室选择页 |
 | `ClassroomUsagePage` | `ClassroomUsagePage({required ApiClient api, required String classroomId, DateTime? initialDate})` | 某日教室使用记录、教师联系方式、发起协查；`initialDate` 用于从空教室结果保留查询日期 |
 | `FreeRoomsPage` | `FreeRoomsPage({required ApiClient api})` | 空教室查询：日期/时段/搜索条件、空闲与待核验结果、分页加载 |
-| `InquiryComposePage` | `InquiryComposePage({required ApiClient api, required String classroomId})` | 选择时段与收件人并发起失物协查 |
+| `InquiryComposePage` | `InquiryComposePage({required ApiClient api, String? classroomId, ClassroomItem? initialClassroom, DateTime? initialDate})` | 选择教室、时段与接收教师并发起失物询问；也支持从教室记录预填 |
 | `InquiryListPage` | `InquiryListPage({required ApiClient api})` | 收到/我发起的协查列表 |
 | `InquiryDetailPage` | `InquiryDetailPage({required ApiClient api, required String inquiryId})` | 标记已读、追加回复、发起人结案 |
 | `NotificationListPage` | `NotificationListPage({required ApiClient api, void Function(String objectType, String objectId)? onOpenObject})` | 消息分页、已读、对象跳转回调 |
@@ -49,17 +50,17 @@ import 'package:teacher_schedule/features/free_rooms/free_rooms_page.dart';
 
 ### 2. 教室
 
-- 功能页“常用工具”新增独立整行入口 **空教室查询**；原“教室查询”改名为 **教室历史**，仍进入 `ClassroomSearchPage`，原功能不变。
+- 功能页“常用工具”提供 **空教室查询** 和统一的 **教室与失物** 入口。后者包含“教室记录 / 失物消息”两个页签，底部均可直接点击 **发起失物询问**。
 - 搜索：`GET classrooms/?q=...`，输入 300ms 防抖；成功后保留当前旧列表直至新数据返回。
 - 使用记录：`GET classrooms/{id}/usage/?date=YYYY-MM-DD`，日期前后切换或日期选择，展示 `session`、`cancelled_session`、`moved_out`、`room_block` 条目。
 - 页面固定展示“排定课程记录，不代表实际到场或物品去向。”；不把排课记录解释为实际到场。
 - 教师联系方式：仅在 `has_visible_contact` 为真时请求 `GET teachers/{id}/contact/`。只展示接口返回且 `*_status=visible` 的字段；微信/电话均用 Flutter `Clipboard` 复制，电话标注“仅复制，不拨号”，没有新增拨号依赖。
-- “发起失物协查”进入 `InquiryComposePage`。
+- 教室详情中的“发起失物询问”进入 `InquiryComposePage` 并保留该教室与所选日期；无需查使用记录时，可从统一页底部直接进入填写。
 
 #### 空教室查询
 
-- 入口：功能页“常用工具”的整行 **空教室查询**，对应 `FreeRoomsPage(api: api)`；不新增 router 依赖。
-- 请求：`GET classrooms/availability/`，查询参数为 `date`、`start_time`、`end_time`，可选 `q`、`campus`、`building`、`min_capacity`，以及 DRF 的 `page`。默认今天 `08:00–09:40`，首次进入自动按默认条件查询；也允许选择历史日期。
+- 入口：功能页“常用工具”的 **空教室查询**，对应 `FreeRoomsPage(api: api)`；不新增 router 依赖。
+- 请求：`GET classrooms/availability/`，查询参数为 `date`、`start_time`、`end_time`，可选 `q`、`campus`、`building`、`min_capacity`，以及 DRF 的 `page`。默认今天 `08:10–09:40`，首次进入自动按默认条件查询；也允许选择历史日期。
 - 页面区分 **空闲** 与 **待核验**，计数直接使用接口的 `available_count`、`unverified_count`；待核验不写成“空教室”或已确认空闲。
 - 结果按接口分页，点“加载更多”请求下一页，并按教室 id 去重；卡片显示教室代码、位置、容量、空闲/待核验状态。
 - 修改日期、时间、搜索词、校区、楼宇或最小容量后，旧结果立即清空并提示重新查询，避免把旧结果伪装成新条件的结果。
@@ -69,6 +70,8 @@ import 'package:teacher_schedule/features/free_rooms/free_rooms_page.dart';
 
 ### 3. 失物协查
 
+- 从统一页或独立失物消息页的底部按钮直接发起时，先选择教室，复用现有教室目录与搜索；默认今天 `08:10–17:10`。未选教室时不查询相关教师。切换教室后清除旧的候选和勾选，保留物品描述与时间。
+- 发送成功回到“失物消息 → 我发起的”并刷新列表；原有从教室记录发起的预填路径继续保留。
 - 候选：`GET inquiries/candidates/?classroom_id=&from_at=&to_at=`。时间以带本地时区偏移的 ISO 发送；页面限制结束晚于开始且跨度不超过 7 天。
 - 发起：`POST inquiries/`，body 为 `classroom_id`、`from_at`、`to_at`、`item_description`、`recipient_ids`。
   **只提交勾选的 `recipient_ids`**，不会默认全选，也不会把未勾选教师发给后端。

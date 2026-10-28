@@ -393,12 +393,15 @@ def prefill_for_session(teacher: TeacherProfile, source_session: ClassSession) -
         .first()
     )
     suggested_ids: set[UUID] = set()
+    suggested_target_teachers: list[dict[str, str]] = []
     if next_session is not None:
-        suggested_ids = set(
+        next_session_teachers = (
             SessionTeacher.objects.filter(session=next_session)
-            .exclude(teacher=teacher)
-            .values_list("teacher_id", flat=True)
+            .select_related("teacher")
+            .order_by("teacher__teacher_no", "teacher_id")
         )
+        suggested_target_teachers = [teacher_brief(row.teacher) for row in next_session_teachers]
+        suggested_ids = {row.teacher_id for row in next_session_teachers if row.teacher_id != teacher.id}
 
     note = (
         TeachingNote.objects.filter(
@@ -420,6 +423,7 @@ def prefill_for_session(teacher: TeacherProfile, source_session: ClassSession) -
             for recipient in recipients
         ],
         "suggested_target_session": session_brief(next_session),
+        "suggested_target_teachers": suggested_target_teachers,
         "content": prefill_content(note),
         "note_id": str(note.id) if note is not None else None,
         "note_published_version": note.published_version if note is not None else None,

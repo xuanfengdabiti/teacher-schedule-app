@@ -191,6 +191,49 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
           ),
           const SizedBox(height: 10),
         ],
+        if (suggested != null) ...[
+          Card(
+            key: const Key('handoffNextSessionCard'),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.people_alt_outlined,
+                        size: 20,
+                        color: appTeal,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '下节授课：${_nextTeachersLabel(prefill)}',
+                          key: const Key('handoffNextTeachersLine'),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            height: 1.45,
+                            fontWeight: FontWeight.w700,
+                            color: appInk,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _suggestedSessionLabel(suggested),
+                    key: const Key('handoffNextSessionWhen'),
+                    style: const TextStyle(fontSize: 13.5, color: appMuted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -214,21 +257,23 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                       final recipient = prefill.recipients[index];
                       final selected = _controller.selectedRecipientIds
                           .contains(recipient.id);
+                      final isNextTeacher = prefill.suggestedTargetTeachers.any(
+                        (target) => target.id == recipient.id,
+                      );
                       return CheckboxListTile(
                         key: ValueKey('recipient-${recipient.id}'),
                         value: selected,
                         contentPadding: EdgeInsets.zero,
                         controlAffinity: ListTileControlAffinity.leading,
-                        title: Text(recipient.name),
-                        subtitle: recipient.isSuggested
-                            ? const Text(
-                                '下次课任课老师',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: appTeal,
-                                ),
-                              )
-                            : null,
+                        title: Row(
+                          children: [
+                            Flexible(child: Text(recipient.name)),
+                            if (isNextTeacher) ...[
+                              const SizedBox(width: 8),
+                              const TeachingStatusPill(label: '下节授课'),
+                            ],
+                          ],
+                        ),
                         onChanged: _controller.submitting
                             ? null
                             : (_) => _controller.toggleRecipient(recipient.id),
@@ -249,7 +294,7 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
                 value: _controller.includeSuggestedTarget,
                 title: const Text('交接给下次课'),
                 subtitle: Text(
-                  _suggestedSessionLabel(prefill, suggested),
+                  _suggestedSessionLabel(suggested),
                   style: const TextStyle(fontSize: 13.5, color: appMuted),
                 ),
                 onChanged: _controller.submitting
@@ -306,10 +351,15 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
     );
   }
 
-  String _suggestedSessionLabel(
-    HandoffPrefill prefill,
-    HandoffSession session,
-  ) {
+  String _nextTeachersLabel(HandoffPrefill prefill) {
+    final names = prefill.suggestedTargetTeachers
+        .map((teacher) => teacher.name)
+        .where((name) => name.trim().isNotEmpty)
+        .join('、');
+    return names.isEmpty ? '暂未安排授课老师' : names;
+  }
+
+  String _suggestedSessionLabel(HandoffSession session) {
     final parts = <String>[];
     if (session.date != null) {
       parts.add(
@@ -318,13 +368,6 @@ class _HandoffComposePageState extends State<HandoffComposePage> {
     }
     if (session.startPeriod > 0) {
       parts.add('第 ${session.startPeriod}-${session.endPeriod} 节');
-    }
-    final nextTeacher = prefill.recipients
-        .where((recipient) => recipient.isSuggested)
-        .map((recipient) => recipient.name)
-        .join('、');
-    if (nextTeacher.isNotEmpty) {
-      parts.add('下次任课 $nextTeacher');
     }
     return parts.isEmpty ? '下次课' : parts.join(' · ');
   }

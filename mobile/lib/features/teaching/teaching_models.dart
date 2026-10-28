@@ -510,6 +510,7 @@ class HandoffPrefill {
   const HandoffPrefill({
     required this.recipients,
     this.suggestedTargetSession,
+    this.suggestedTargetTeachers = const [],
     required this.content,
     this.noteId,
     this.notePublishedVersion,
@@ -517,6 +518,10 @@ class HandoffPrefill {
 
   final List<HandoffRecipient> recipients;
   final HandoffSession? suggestedTargetSession;
+
+  /// The actual teachers of the next session, including the current teacher.
+  /// Recipients intentionally exclude the sender, so this is a separate list.
+  final List<TeacherBrief> suggestedTargetTeachers;
   final String content;
   final String? noteId;
   final int? notePublishedVersion;
@@ -530,6 +535,11 @@ class HandoffPrefill {
       suggestedTargetSession: map['suggested_target_session'] == null
           ? null
           : HandoffSession.fromJson(map['suggested_target_session']),
+      suggestedTargetTeachers: (map['suggested_target_teachers'] is List)
+          ? (map['suggested_target_teachers'] as List)
+                .map(TeacherBrief.fromJson)
+                .toList(growable: false)
+          : const [],
       content: jsonString(map['content']) ?? '',
       noteId: jsonString(map['note_id']),
       notePublishedVersion: jsonInt(map['note_published_version']),

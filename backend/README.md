@@ -455,7 +455,7 @@ ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NO
 
 | 方法与路径 | 说明 |
 | --- | --- |
-| `GET /api/v1/handoffs/prefill/?source_session_id=` | 只读发送表单预填：`recipients`（该 offering 当前有效任课教师，排除本人，含 `is_suggested`）、`suggested_target_session`、`content`、`note_id`、`note_published_version`。不创建任何记录。 |
+| `GET /api/v1/handoffs/prefill/?source_session_id=` | 只读发送表单预填：`recipients`（该 offering 当前有效任课教师，排除本人，含 `is_suggested`）、`suggested_target_session`、`suggested_target_teachers`（下节实际授课教师 `{id, name}` 列表，包含本人）、`content`、`note_id`、`note_published_version`。不创建任何记录。 |
 | `POST /api/v1/handoffs/` | body `offering_id`、`recipient_ids`（1–10 个）、`content`、`source_session_id`、`target_session_id`、`note_id`（后三者可空）。201 返回创建的交接列表；每个接收人一条 `pending`。 |
 | `GET /api/v1/handoffs/?box=inbox\|sent&status=` | `inbox` 为本人收到、`sent` 为本人发出，默认 inbox；`status` 可选。created_at 倒序，DRF 标准分页。 |
 | `GET /api/v1/handoffs/{id}/` | 仅发送人或接收人可看，其他人 404；GET 不写 `read_at`。 |
@@ -472,9 +472,11 @@ ChangeLog，也不能用空内容覆盖已有发布快照。冲突返回 409 `NO
 `GET handoffs/prefill/` 的 `content` 只取本人在来源课次上已发布备注的 `published_unfinished` 和
 `published_next_plan`，按“未完成内容：”“下次计划：”两段拼接；没有发布备注或两段都为空时为空字符串，
 但有发布备注时仍返回其 `note_id`/`note_published_version`。
-`is_suggested`/`suggested_target_session` 取同一 offering 中来源课次之后第一个 `scheduled` 课次的
-`SessionTeacher`（排除本人）；建议对象若已不是当前有效任课教师，只返回 `suggested_target_session`，
-不会扩大 `recipients` 的合法范围。
+`suggested_target_session` 取同一 offering 中来源课次之后第一个 `scheduled` 课次；
+`suggested_target_teachers` 返回该课次完整的 `SessionTeacher` 名单，用于明确显示“下节授课”。
+名单包含本人和共同授课教师，无下一课次或未排教师时为空数组。
+`is_suggested` 仍只标记合法接收人中的下节授课教师；本人及已不在当前有效任课范围的教师不会因此加入
+`recipients`，也不会自动勾选或扩大可发送范围。
 
 状态变更都在事务内对交接行 `select_for_update`，因此并发确认/撤回只有一方成功，另一方得到
 409。错误体统一 `{code, detail, field_errors}`：400 `VALIDATION_ERROR`/`INVALID_RECIPIENT`/

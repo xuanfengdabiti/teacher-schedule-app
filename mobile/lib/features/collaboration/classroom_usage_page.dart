@@ -126,6 +126,7 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
         builder: (context) => InquiryComposePage(
           api: widget.api,
           classroomId: widget.classroomId,
+          initialClassroom: _data?.classroom,
           initialDate: _date,
         ),
       ),

@@ -81,6 +81,7 @@ class HandoffPrefillView(APIView):
         description=(
             "只读：不创建交接或消息。recipients 为该 offering 当前有效任课教师（排除本人），"
             "is_suggested 标记同一 offering 中来源课次之后第一个 scheduled 课次的授课教师；"
+            "suggested_target_teachers 为该下一课次的完整 SessionTeacher 名单（含本人），"
             "content 只取本人在来源课次上已发布备注的未完成内容与下次计划，草稿不参与。"
         ),
         parameters=[HandoffPrefillQuerySerializer],

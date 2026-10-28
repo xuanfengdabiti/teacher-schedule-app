@@ -71,6 +71,7 @@ Navigator.of(context).push(
 
 - GET `handoffs/prefill/?source_session_id=...`，并并行 GET `sessions/{source_session_id}/` 取得 `offering_id`。
 - 展示同 offering 候选接收人，**默认不勾选任何人**；`is_suggested` 仅作提示，不会自动选人。
+- 下节课卡片独立展示日期、节次和“下节授课”名单，姓名来自 `suggested_target_teachers`，包含下节仍由本人授课的情况；多人授课全部显示。可选接收人中的下节授课教师另有标签，与是否勾选区分。
 - 预填已发布备注的 `content`；没有发布备注时为空。
 - 建议目标课次显示为可关闭的开关；关闭时不提交 `target_session_id`。
 - POST `handoffs/` body：`offering_id, recipient_ids, content, source_session_id, target_session_id?, note_id?`。

@@ -4,6 +4,7 @@ import '../../app/theme.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../shared/status_views.dart';
+import 'classroom_search_page.dart';
 import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
 
@@ -11,12 +12,14 @@ class InquiryComposePage extends StatefulWidget {
   const InquiryComposePage({
     super.key,
     required this.api,
-    required this.classroomId,
+    this.classroomId,
+    this.initialClassroom,
     this.initialDate,
   });
 
   final ApiClient api;
-  final String classroomId;
+  final String? classroomId;
+  final ClassroomItem? initialClassroom;
   final DateTime? initialDate;
 
   @override
@@ -28,26 +31,32 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   final Set<String> _selected = {};
   late DateTime _from;
   late DateTime _to;
+  String? _classroomId;
+  ClassroomItem? _classroom;
   InquiryCandidatesData? _candidates;
   Object? _candidatesError;
-  bool _loadingCandidates = true;
+  bool _loadingCandidates = false;
   bool _submitting = false;
   int _candidatesRequestNo = 0;
 
   @override
   void initState() {
     super.initState();
+    _classroomId = widget.classroomId;
+    _classroom = widget.initialClassroom;
     final initial = widget.initialDate;
     if (initial != null) {
       _from = DateTime(initial.year, initial.month, initial.day, 8, 10);
       _to = DateTime(initial.year, initial.month, initial.day, 17, 10);
     } else {
       final now = DateTime.now();
-      _from = DateTime(now.year, now.month, now.day, now.hour);
-      _to = _from.add(const Duration(hours: 2));
+      _from = DateTime(now.year, now.month, now.day, 8, 10);
+      _to = DateTime(now.year, now.month, now.day, 17, 10);
     }
     _description.addListener(_onChanged);
-    _loadCandidates();
+    if (_classroomId != null) {
+      _loadCandidates();
+    }
   }
 
   @override
@@ -64,6 +73,19 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
     }
   }
 
+  String get _classroomLabel {
+    final room = _classroom;
+    if (room == null) {
+      return '已选择教室';
+    }
+    final location = [
+      room.campus,
+      room.building,
+      room.roomNo,
+    ].where((part) => part.isNotEmpty).join(' · ');
+    return location.isEmpty ? room.classroomCode : location;
+  }
+
   String? get _rangeError {
     if (!_to.isAfter(_from)) {
       return '结束时间必须晚于开始时间。';
@@ -75,6 +97,10 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   }
 
   Future<void> _loadCandidates({bool keepData = false}) async {
+    final classroomId = _classroomId;
+    if (classroomId == null) {
+      return;
+    }
     final rangeError = _rangeError;
     if (rangeError != null) {
       showCollabError(context, ApiException(message: rangeError));
@@ -91,7 +117,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
       final response = await widget.api.get(
         'inquiries/candidates/',
         query: {
-          'classroom_id': widget.classroomId,
+          'classroom_id': classroomId,
           'from_at': isoDateTimeWithOffset(_from),
           'to_at': isoDateTimeWithOffset(_to),
         },
@@ -116,6 +142,29 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
         _loadingCandidates = false;
       });
     }
+  }
+
+  Future<void> _pickClassroom() async {
+    final picked = await Navigator.of(context).push<ClassroomItem>(
+      MaterialPageRoute<ClassroomItem>(
+        builder: (context) => ClassroomSearchPage(
+          api: widget.api,
+          title: '选择教室',
+          onSelect: (room) => Navigator.of(context).pop(room),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() {
+      _classroom = picked;
+      _classroomId = picked.id;
+      _candidates = null;
+      _candidatesError = null;
+      _selected.clear();
+    });
+    await _loadCandidates();
   }
 
   Future<void> _chooseFrom() async {
@@ -163,6 +212,11 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
   }
 
   Future<void> _submit() async {
+    final classroomId = _classroomId;
+    if (classroomId == null) {
+      showCollabError(context, ApiException(message: '请先选择教室。'));
+      return;
+    }
     final description = _description.text.trim();
     if (description.isEmpty) {
       showCollabError(context, ApiException(message: '请填写物品描述。'));
@@ -182,7 +236,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
       await widget.api.post(
         'inquiries/',
         data: {
-          'classroom_id': widget.classroomId,
+          'classroom_id': classroomId,
           'from_at': isoDateTimeWithOffset(_from),
           'to_at': isoDateTimeWithOffset(_to),
           'item_description': description,
@@ -227,7 +281,8 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
         _candidates != null &&
         _selected.isNotEmpty &&
         _description.text.trim().isNotEmpty &&
-        _rangeError == null;
+        _rangeError == null &&
+        _classroomId != null;
     return Scaffold(
       appBar: AppBar(title: const Text('发起失物询问')),
       body: Column(
@@ -237,6 +292,43 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
+                CollabSectionCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '询问教室',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          TextButton.icon(
+                            key: const ValueKey('inquiry-classroom-pick'),
+                            onPressed: _pickClassroom,
+                            icon: const Icon(Icons.meeting_room_outlined),
+                            label: Text(_classroomId == null ? '选择教室' : '更换'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      if (_classroomId == null)
+                        const Text(
+                          '先选择教室，再选择时间和相关教师。',
+                          key: ValueKey('inquiry-classroom-empty'),
+                          style: TextStyle(fontSize: 14, color: appMuted),
+                        )
+                      else
+                        Text(
+                          _classroomLabel,
+                          key: const ValueKey('inquiry-classroom-selected'),
+                          style: const TextStyle(fontSize: 16, color: appInk),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
                 const CollabNotice(
                   text: '失物询问只发给当前时段相关且被选中的教师；排定课程记录不代表实际到场或物品去向。',
                   icon: Icons.volunteer_activism_outlined,
@@ -289,7 +381,7 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           key: const ValueKey('inquiry-query'),
-                          onPressed: _loadingCandidates
+                          onPressed: _classroomId == null || _loadingCandidates
                               ? null
                               : () => _loadCandidates(keepData: true),
                           icon: const Icon(Icons.people_outline),
@@ -307,7 +399,16 @@ class _InquiryComposePageState extends State<InquiryComposePage> {
                     color: _selected.isEmpty ? appMuted : appTeal,
                   ),
                 ),
-                if (candidates == null)
+                if (_classroomId == null)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: EmptyView(
+                      title: '请先选择教室',
+                      detail: '选择后会查找该时段的相关教师。',
+                      icon: Icons.meeting_room_outlined,
+                    ),
+                  )
+                else if (candidates == null)
                   _loadingCandidates
                       ? const Padding(
                           padding: EdgeInsets.symmetric(vertical: 36),
