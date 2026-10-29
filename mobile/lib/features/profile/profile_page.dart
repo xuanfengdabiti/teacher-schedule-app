@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../app/theme.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
 import '../../shared/status_views.dart';
 import '../auth/auth_controller.dart';
+import '../reminders/reminder_settings_page.dart';
+import 'avatar_repository.dart';
+import 'avatar_view.dart';
 import 'font_size_page.dart';
 import 'profile_edit_page.dart';
 
@@ -19,6 +23,53 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   bool _refreshing = false;
+  final ImagePicker _picker = ImagePicker();
+  final GlobalKey<ProfileAvatarState> _avatarKey =
+      GlobalKey<ProfileAvatarState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _recoverLostAvatar();
+  }
+
+  Future<void> _recoverLostAvatar() async {
+    try {
+      final response = await _picker.retrieveLostData();
+      if (response.isEmpty) {
+        return;
+      }
+      final files = response.files;
+      final file = files != null && files.isNotEmpty
+          ? files.first
+          : response.file;
+      if (file == null) {
+        return;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _avatarKey.currentState?.handleRecoveredFile(file);
+      });
+    } catch (_) {
+      // Recovery is best-effort; a failed read must not block the page.
+    }
+  }
+
+  Future<XFile?> _pickAvatar() async {
+    try {
+      return await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 82,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('无法打开相册，请稍后重试。')));
+      }
+      return null;
+    }
+  }
 
   Future<void> _refresh() async {
     setState(() => _refreshing = true);
@@ -81,17 +132,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: const Color(0xFFDDEFEA),
-                    child: Text(
-                      _initial(me.displayName),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: appTeal,
-                      ),
-                    ),
+                  ProfileAvatar(
+                    key: _avatarKey,
+                    accountId: me.id,
+                    displayName: me.displayName,
+                    avatarUrl: me.avatarUrl,
+                    repository: ref.watch(avatarRepositoryProvider),
+                    pickImage: _pickAvatar,
+                    refreshMe: () =>
+                        ref.read(authControllerProvider.notifier).refreshMe(),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -207,6 +256,21 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  key: const Key('reminderSettingsEntry'),
+                  leading: const Icon(
+                    Icons.notifications_active_outlined,
+                    color: appTeal,
+                  ),
+                  title: const Text('上课提醒'),
+                  trailing: const Icon(Icons.chevron_right, color: appMuted),
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => const ReminderSettingsPage(),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
                   key: const Key('passwordChangeEntry'),
                   leading: const Icon(Icons.lock_outline, color: appTeal),
                   title: const Text('修改密码'),
@@ -248,11 +312,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         ],
       ),
     );
-  }
-
-  static String _initial(String name) {
-    final trimmed = name.trim();
-    return trimmed.isEmpty ? '师' : trimmed.substring(0, 1);
   }
 
   static String _contactValue(String? value, String? visibility) {

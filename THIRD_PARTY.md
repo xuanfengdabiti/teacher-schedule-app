@@ -69,6 +69,10 @@ App 发布时提供“开源许可”页和相应第三方声明。当前项目�
 
 AI 文字生成复用 [DeepSeek 的兼容 chat completions 接口](https://api-docs.deepseek.com/)和 [JSON 输出合同](https://api-docs.deepseek.com/guides/json_mode/)，本机可配置兼容服务与模型名。外部模型为远程服务，不复制模型源码或权重，其服务使用条件由所配置供应商约定；无需为此另加 SDK。后端沿用 Python 标准库 `urllib` / `json`（PSF 许可）完成一次请求，移动端沿用上表已有 Dio / Flutter Material 组件。只自写课程上下文组装、教学提示词和备课保存业务，无新增包依赖。
 
+## 手机安装与基础功能复用（2026-10-29）
+
+新增 [image_picker 1.2.4](https://pub.dev/packages/image_picker)（Flutter 官方，BSD-3-Clause / Apache-2.0）用于系统相册与头像尺寸调整，[flutter_local_notifications 22.3.3](https://pub.dev/packages/flutter_local_notifications)（BSD-3-Clause）用于 Android 本地上课提醒，以及 [timezone 0.11.2](https://pub.dev/packages/timezone)（BSD-3-Clause）用于按学校时区调度。复用既有头像、课程和偏好接口，避免自写相册选择器、通知 SDK 或重复认证系统。配置、适配范围与验收见[手机联网演示](docs/phone-demo.md)，实际版本由 `mobile/pubspec.lock` 锁定。
+
 ## 本地录屏外壳素材
 
 2026-10-27 的本机演示使用 [Hoverify 自绘的 iPhone 17 Pro Max 银色外框](https://tryhoverify.com/tools/device-frames/iphone-17-pro-max/)。[素材许可](https://tryhoverify.com/tools/device-frames/license/)允许免费用于个人、商业演示视频及成品截图，无需署名；禁止重新分发外框文件，或将其集成到供他人套图的工具。素材与 Emulator skin 适配仅保存在本机 Android SDK 的 `skins/iphone_17_pro_max_silver`，不提交仓库、不打包进 App，也不新增运行时依赖。外壳仅用于录屏展示，不代表已完成 iOS 构建或验收。

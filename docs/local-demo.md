@@ -67,6 +67,8 @@ docker compose -p teacher-schedule-demo --env-file infra/deploy/.env.demo -f inf
 
 ## 手机连接
 
+2026-10-29 新增香港服务器联网演示，手机可以直接使用 `http://38.76.172.48:18000/api/v1/`，无需与电脑处于同一 Wi‑Fi。安装包及新增基础功能见[手机联网演示](phone-demo.md)。以下模拟器/局域网地址仍可用于原本的电脑本地环境。
+
 - Android 模拟器：`http://10.0.2.2:18000/api/v1/`
 - 真机：手机与电脑同一局域网，把地址改成电脑局域网 IP，例如 `http://192.168.1.10:18000/api/v1/`。
 

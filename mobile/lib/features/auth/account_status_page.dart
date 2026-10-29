@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/network/api_exception.dart';
@@ -124,6 +125,16 @@ class _AccountStatusPageState extends ConsumerState<AccountStatusPage> {
               ),
             ],
             const SizedBox(height: 22),
+            if (me != null && !me.emailVerified) ...[
+              FilledButton.icon(
+                key: const Key('openEmailVerificationButton'),
+                onPressed: () =>
+                    context.push('/verify-email', extra: {'email': me.email}),
+                icon: const Icon(Icons.mark_email_read_outlined),
+                label: const Text('验证邮箱 / 重发邮件'),
+              ),
+              const SizedBox(height: 10),
+            ],
             FilledButton.icon(
               onPressed: _checking ? null : _checkAgain,
               icon: _checking

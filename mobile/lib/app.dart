@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 import 'features/profile/font_size_controller.dart';
+import 'features/reminders/reminder_coordinator.dart';
 
 /// Android Material 3 stretches edge content by default, which warps text and
 /// cards at the end of a list. Keep normal scrolling and pull-to-refresh but
@@ -34,17 +35,24 @@ class TeacherScheduleApp extends ConsumerWidget {
       builder: (context, child) {
         // Following the system keeps the platform scaler untouched (including
         // non-linear scaling). Large choices add exactly one extra factor.
+        Widget content;
         if (fontChoice == 'system') {
-          return child ?? const SizedBox.shrink();
+          content = child ?? const SizedBox.shrink();
+        } else {
+          final media = MediaQuery.of(context);
+          final scale = textScaleForFontSize(fontChoice);
+          content = MediaQuery(
+            data: media.copyWith(
+              textScaler: TextScaler.linear(
+                media.textScaler.scale(1.0) * scale,
+              ),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          );
         }
-        final media = MediaQuery.of(context);
-        final scale = textScaleForFontSize(fontChoice);
-        return MediaQuery(
-          data: media.copyWith(
-            textScaler: TextScaler.linear(media.textScaler.scale(1.0) * scale),
-          ),
-          child: child ?? const SizedBox.shrink(),
-        );
+        // One coordinator instance wraps both font-size branches so reminder
+        // setup and notification taps survive any font-size change.
+        return ReminderCoordinator(child: content);
       },
       routerConfig: ref.watch(routerProvider),
     );

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/auth/account_entry_pages.dart';
 import '../features/auth/account_status_page.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/login_page.dart';
+import '../features/auth/password_reset_pages.dart';
 import '../features/offerings/features_page.dart';
 import '../features/profile/password_change_page.dart';
 import '../features/profile/profile_page.dart';
@@ -31,17 +33,26 @@ String? _redirect(Ref ref, GoRouterState state) {
   final atLogin = location == '/login';
   final atStatus = location == '/account-status';
   final atImport = location == '/import';
+  final atAccountAccess =
+      location == '/register' ||
+      location == '/verify-email' ||
+      location == '/forgot-password' ||
+      location == '/reset-password';
+  final atVerifyEmail = location == '/verify-email';
 
   return switch (session.phase) {
     SessionPhase.loading || SessionPhase.error => atSplash ? null : '/splash',
-    SessionPhase.signedOut => atLogin ? null : '/login',
+    SessionPhase.signedOut => atLogin || atAccountAccess ? null : '/login',
     SessionPhase.active =>
       ref.read(needsFirstImportProvider)
           ? (atImport ? null : '/import')
-          : (atSplash || atLogin || atStatus || atImport)
+          : (atSplash || atLogin || atStatus || atImport || atAccountAccess)
           ? '/today'
           : null,
-    SessionPhase.restricted => atStatus ? null : '/account-status',
+    // A restricted account may only open its own email verification; password
+    // entry must not run while a signed-in session is still held.
+    SessionPhase.restricted =>
+      atStatus || atVerifyEmail ? null : '/account-status',
   };
 }
 
@@ -55,6 +66,26 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (context, state) => const SplashPage()),
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterPage(),
+      ),
+      GoRoute(
+        path: '/verify-email',
+        builder: (context, state) {
+          final extra = state.extra;
+          final email = extra is Map ? extra['email']?.toString() : null;
+          return VerifyEmailPage(email: email);
+        },
+      ),
+      GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordPage(),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => const ResetPasswordConfirmPage(),
+      ),
       GoRoute(path: '/import', builder: (context, state) => const ImportPage()),
       GoRoute(
         path: '/account-status',

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../storage/token_store.dart';
@@ -93,6 +95,30 @@ class ApiClient {
     }
   }
 
+  /// Authenticated byte read (for example the private avatar image). Uses the
+  /// same Dio/interceptor/refresh path as every other request.
+  Future<Uint8List> getBytes(String path, {Map<String, dynamic>? query}) async {
+    try {
+      final response = await _dio.get<List<int>>(
+        path,
+        queryParameters: query,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      return data == null ? Uint8List(0) : Uint8List.fromList(data);
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
+  Future<void> delete(String path) async {
+    try {
+      await _dio.delete<dynamic>(path);
+    } on DioException catch (error) {
+      throw ApiException.fromDio(error);
+    }
+  }
+
   Future<void> _attachToken(
     RequestOptions options,
     RequestInterceptorHandler handler,
@@ -146,6 +172,12 @@ class ApiClient {
     final access = await tokenStore.readAccess();
     options.headers['Authorization'] = 'Bearer $access';
     options.extra['retried'] = true;
+    // Multipart bodies are consumed by the first attempt; Dio can only replay
+    // them from a fresh clone. Ordinary JSON bodies are unaffected.
+    final data = options.data;
+    if (data is FormData) {
+      options.data = data.clone();
+    }
     try {
       final response = await _dio.fetch<dynamic>(options);
       handler.resolve(response);

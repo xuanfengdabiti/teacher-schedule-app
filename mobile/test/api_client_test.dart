@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teacher_schedule/core/network/api_client.dart';
 import 'package:teacher_schedule/core/network/api_exception.dart';
@@ -122,6 +123,49 @@ void main() {
     expect(expiredCalls, 1);
     expect(await tokens.readAccess(), isNull);
     expect(await tokens.readRefresh(), isNull);
+  });
+
+  test('401 后 multipart 上传用 clone 重放并携带新 token', () async {
+    final tokens = MemoryTokenStore();
+    await tokens.save(access: 'old-access', refresh: 'old-refresh');
+    var uploads = 0;
+    var refreshCalls = 0;
+    final adapter = MockHttpAdapter((options) {
+      if (options.uri.path.endsWith('/auth/token/refresh/')) {
+        refreshCalls++;
+        return jsonResponse({'access': 'new-access', 'refresh': 'new-refresh'});
+      }
+      if (options.uri.path.endsWith('/me/avatar/')) {
+        uploads++;
+        if (uploads == 1) {
+          expect(options.headers['Authorization'], 'Bearer old-access');
+          return jsonResponse({'detail': '访问令牌已过期。'}, 401);
+        }
+        expect(options.headers['Authorization'], 'Bearer new-access');
+        expect(options.data, isA<FormData>());
+        return jsonResponse({
+          'avatar_url': 'http://example.test/api/v1/me/avatar/?v=a.png',
+        });
+      }
+      return jsonResponse({'detail': 'unexpected'}, 404);
+    });
+    final client = ApiClient(
+      baseUrl: 'http://example.test/api/v1/',
+      tokenStore: tokens,
+      dio: mockDio(adapter),
+    );
+
+    final response = await client.post(
+      'me/avatar/',
+      data: FormData.fromMap({
+        'avatar': MultipartFile.fromBytes([1, 2, 3, 4], filename: 'avatar.png'),
+      }),
+    );
+
+    expect(response.statusCode, 200);
+    expect(uploads, 2);
+    expect(refreshCalls, 1);
+    expect(await tokens.readAccess(), 'new-access');
   });
 
   test('非 401 响应保留服务端错误说明', () async {

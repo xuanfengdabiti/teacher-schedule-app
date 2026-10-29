@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
+import '../../core/config/api_config.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/providers.dart';
+import 'account_access_notice.dart';
 import 'auth_controller.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -89,8 +92,40 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
+  Future<void> _openAccountPage(String path) async {
+    if (_submitting) {
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _error = null);
+    try {
+      final normalized = ApiConfig.normalizeBaseUrl(_serverController.text);
+      await ref.read(settingsRepositoryProvider).setApiBaseUrl(normalized);
+      ref.read(apiClientProvider).baseUrl = normalized;
+      if (mounted) {
+        _serverController.text = normalized;
+        context.push(path);
+      }
+    } on FormatException catch (error) {
+      if (mounted) {
+        setState(() => _error = error.message);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final accountNotice = ref.watch(accountAccessNoticeProvider);
+    if (accountNotice != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(accountNotice)));
+        ref.read(accountAccessNoticeProvider.notifier).clear();
+      });
+    }
     final passwordChanged = ref.watch(passwordChangedNoticeProvider);
     if (passwordChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -185,7 +220,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: const Text(
-                                      '本地演示 · 数据均为虚构',
+                                      '演示账号 · 虚构数据',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
@@ -379,6 +414,33 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                       )
                                     : const Text('登录'),
                               ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextButton(
+                                      key: const Key('openRegisterButton'),
+                                      onPressed: _submitting
+                                          ? null
+                                          : () => _openAccountPage('/register'),
+                                      child: const Text('注册账号'),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: TextButton(
+                                      key: const Key(
+                                        'openForgotPasswordButton',
+                                      ),
+                                      onPressed: _submitting
+                                          ? null
+                                          : () => _openAccountPage(
+                                              '/forgot-password',
+                                            ),
+                                      child: const Text('忘记密码'),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
@@ -432,7 +494,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             ),
                             const SizedBox(height: 10),
                             const Text(
-                              'Android 模拟器默认使用 10.0.2.2；真机请填电脑的局域网地址。地址以 /api/v1 结尾。',
+                              '服务地址以 /api/v1/ 结尾。',
                               style: TextStyle(
                                 fontSize: 13,
                                 height: 1.45,
@@ -444,7 +506,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        '登录即表示使用学校分配的教师账号。',
+                        '请使用演示账号登录。',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, color: appMuted),
                       ),

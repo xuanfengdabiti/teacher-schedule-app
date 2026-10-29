@@ -4,8 +4,24 @@ class ApiConfig {
   static const String androidEmulatorBaseUrl = 'http://10.0.2.2:18000/api/v1/';
   static const String localhostBaseUrl = 'http://127.0.0.1:18000/api/v1/';
 
-  static String defaultBaseUrl() {
-    if (defaultTargetPlatform == TargetPlatform.android) {
+  /// Set at build time, e.g.
+  /// `flutter build apk --dart-define=API_BASE_URL=http://host:18000/api/v1/`.
+  static const String compiledBaseUrl = String.fromEnvironment('API_BASE_URL');
+
+  static String defaultBaseUrl() => resolveDefaultBaseUrl();
+
+  /// Pure resolver so build-time configuration and platform fallback can be
+  /// verified without changing the running platform.
+  static String resolveDefaultBaseUrl({
+    String configured = compiledBaseUrl,
+    TargetPlatform? platform,
+  }) {
+    final raw = configured.trim();
+    if (raw.isNotEmpty) {
+      return normalizeBaseUrl(raw);
+    }
+    final target = platform ?? defaultTargetPlatform;
+    if (target == TargetPlatform.android) {
       return androidEmulatorBaseUrl;
     }
     return localhostBaseUrl;
