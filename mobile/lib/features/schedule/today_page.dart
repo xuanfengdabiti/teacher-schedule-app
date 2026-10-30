@@ -302,7 +302,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
                       child: SessionCard(
                         key: ValueKey('session-${session.id}'),
                         session: session,
-                        onTap: () => context.push('/sessions/${session.id}'),
+                        onTap: () => _openSessionActions(session),
                         onLongPress: () => _openSessionActions(session),
                       ),
                     );

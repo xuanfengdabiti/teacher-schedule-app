@@ -41,8 +41,7 @@ class _WeekOverviewState extends State<WeekOverview> {
   @override
   void didUpdateWidget(covariant WeekOverview oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!sameDay(oldWidget.monday, widget.monday) ||
-        !identical(oldWidget.sessions, widget.sessions)) {
+    if (!sameDay(oldWidget.monday, widget.monday)) {
       _resetView();
     }
   }
@@ -72,48 +71,59 @@ class _WeekOverviewState extends State<WeekOverview> {
         if (widget.sessions.any((session) => sameDay(session.date, date)))
           date.weekday,
     };
+    const toolbarHeight = 32.0;
+    const toolbarGap = 6.0;
 
-    return Column(
-      children: [
-        _OverviewToolbar(
-          controller: _transformationController,
-          hasSessions: widget.sessions.isNotEmpty,
-          sessionDayCount: sessionDays.length,
-          onReset: _resetView,
-        ),
-        const SizedBox(height: 6),
-        Expanded(
-          child: Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: appLine),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 360.0;
+        final contentWidth = math.max(0.0, viewportWidth - _canvasPaddingX * 2);
+        final gridWidth = math.max(0.0, contentWidth - _timeWidth);
+        final dayWidth = gridWidth / 7;
+        final gridHeight = _rowHeight * visiblePeriods.length;
+        final contentHeight =
+            _canvasPaddingTop +
+            _dayHeaderHeight +
+            _headerGap +
+            gridHeight +
+            _canvasPaddingBottom;
+        final totalHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : contentHeight + toolbarHeight + toolbarGap;
+        final viewportHeight = math.max(
+          0.0,
+          totalHeight - toolbarHeight - toolbarGap,
+        );
+        final childHeight = math.max(viewportHeight, contentHeight);
+
+        return Column(
+          children: [
+            SizedBox(
+              height: toolbarHeight,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _ZoomResetButton(
+                  controller: _transformationController,
+                  onReset: _resetView,
+                ),
+              ),
             ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final viewportWidth = constraints.maxWidth.isFinite
-                    ? constraints.maxWidth
-                    : 360.0;
-                final contentWidth = math.max(
-                  0.0,
-                  viewportWidth - _canvasPaddingX * 2,
-                );
-                final gridWidth = math.max(0.0, contentWidth - _timeWidth);
-                final dayWidth = gridWidth / 7;
-                final gridHeight = _rowHeight * visiblePeriods.length;
-                final contentHeight =
-                    _canvasPaddingTop +
-                    _dayHeaderHeight +
-                    _headerGap +
-                    gridHeight +
-                    _canvasPaddingBottom;
-                final viewportHeight = constraints.maxHeight.isFinite
-                    ? constraints.maxHeight
-                    : contentHeight;
-                final childHeight = math.max(viewportHeight, contentHeight);
-
-                return InteractiveViewer(
+            const SizedBox(height: toolbarGap),
+            SizedBox(
+              height: viewportHeight,
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                foregroundDecoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: appLine),
+                ),
+                child: InteractiveViewer(
                   key: const Key('weekOverviewViewport'),
                   transformationController: _transformationController,
                   minScale: 1,
@@ -124,6 +134,7 @@ class _WeekOverviewState extends State<WeekOverview> {
                   constrained: false,
                   clipBehavior: Clip.hardEdge,
                   child: SizedBox(
+                    key: const Key('weekOverviewCanvas'),
                     width: viewportWidth,
                     height: childHeight,
                     child: ColoredBox(
@@ -162,12 +173,12 @@ class _WeekOverviewState extends State<WeekOverview> {
                       ),
                     ),
                   ),
-                );
-              },
+                ),
+              ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 
@@ -190,43 +201,6 @@ class _WeekOverviewState extends State<WeekOverview> {
   }
 }
 
-class _OverviewToolbar extends StatelessWidget {
-  const _OverviewToolbar({
-    required this.controller,
-    required this.hasSessions,
-    required this.sessionDayCount,
-    required this.onReset,
-  });
-
-  final TransformationController controller;
-  final bool hasSessions;
-  final int sessionDayCount;
-  final VoidCallback onReset;
-
-  @override
-  Widget build(BuildContext context) {
-    final hint = !hasSessions
-        ? '本周暂无课程 · 可双指缩放'
-        : '双指缩放 · 放大后拖动 · $sessionDayCount天有课';
-    return Row(
-      children: [
-        const Icon(Icons.pinch_outlined, size: 14, color: appMuted),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            hint,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11.5, color: appMuted),
-          ),
-        ),
-        const SizedBox(width: 8),
-        _ZoomResetButton(controller: controller, onReset: onReset),
-      ],
-    );
-  }
-}
-
 class _ZoomResetButton extends StatelessWidget {
   const _ZoomResetButton({required this.controller, required this.onReset});
 
@@ -238,47 +212,44 @@ class _ZoomResetButton extends StatelessWidget {
     return ValueListenableBuilder<Matrix4>(
       valueListenable: controller,
       builder: (context, matrix, _) {
-        final scale = matrix.getMaxScaleOnAxis();
-        final percent = (scale * 100).round().clamp(100, 300);
+        final percent = (matrix.getMaxScaleOnAxis() * 100)
+            .round()
+            .clamp(100, 300)
+            .toInt();
         return Tooltip(
           message: '复位课表缩放',
           child: Semantics(
             button: true,
             label: '复位课表缩放，当前$percent%',
-            child: Material(
-              color: percent == 100 ? Colors.white : const Color(0xFFEAF3FF),
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
-                key: const Key('weekOverviewReset'),
-                onTap: onReset,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: appLine),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.center_focus_strong_outlined,
-                        size: 13,
-                        color: appTeal,
-                      ),
-                      const SizedBox(width: 3),
-                      Text(
-                        '$percent%',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: appTeal,
-                        ),
-                      ),
-                    ],
+            child: TextButton(
+              key: const Key('weekOverviewReset'),
+              onPressed: onReset,
+              style: TextButton.styleFrom(
+                foregroundColor: percent == 100 ? appInk : appTeal,
+                backgroundColor: percent == 100
+                    ? Colors.white
+                    : const Color(0xFFEAF3FF),
+                minimumSize: const Size(52, 30),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: const BorderSide(color: appLine),
+                ),
+              ),
+              child: SizedBox(
+                width: 38,
+                height: 16,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '$percent%',
+                    maxLines: 1,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

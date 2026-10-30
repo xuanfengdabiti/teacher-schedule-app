@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme.dart';
 import '../../core/json.dart';
+import '../../core/providers.dart';
 import '../../shared/status_views.dart';
 import 'models.dart';
 import 'schedule_controller.dart';
+import 'session_action_sheet.dart';
 import 'session_card.dart';
 import 'week_overview.dart';
 
@@ -57,6 +61,16 @@ class _WeekPageState extends ConsumerState<WeekPage> {
     if (picked != null) {
       await ref.read(scheduleControllerProvider.notifier).selectDate(picked);
     }
+  }
+
+  void _openSessionActions(Session session) {
+    unawaited(
+      showSessionActionSheet(
+        context: context,
+        session: session,
+        api: ref.read(apiClientProvider),
+      ),
+    );
   }
 
   @override
@@ -261,6 +275,7 @@ class _WeekPageState extends ConsumerState<WeekPage> {
                       date: selectedDate,
                       week: week,
                       sessions: sessions,
+                      onOpenSession: _openSessionActions,
                     ),
             ),
           ],
@@ -378,11 +393,13 @@ class _WeekContent extends StatelessWidget {
     required this.date,
     required this.week,
     required this.sessions,
+    required this.onOpenSession,
   });
 
   final DateTime date;
   final WeekSchedule? week;
   final List<Session> sessions;
+  final ValueChanged<Session> onOpenSession;
 
   @override
   Widget build(BuildContext context) {
@@ -451,7 +468,7 @@ class _WeekContent extends StatelessWidget {
           child: SessionCard(
             key: ValueKey('session-${session.id}'),
             session: session,
-            onTap: () => context.push('/sessions/${session.id}'),
+            onTap: () => onOpenSession(session),
           ),
         );
       },

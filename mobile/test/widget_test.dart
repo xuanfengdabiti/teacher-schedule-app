@@ -341,6 +341,27 @@ void main() {
     expect(server.notesReadCalls, 0, reason: '课表卡片不应逐卡请求备注');
 
     await tester.tap(sessionCard);
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('sessionActionSheet')),
+      reason: '单击课程卡未打开操作菜单',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('课程详情'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('sessionActionClose')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('sessionActionSheet')), findsNothing);
+    expect(find.text('课程信息'), findsNothing, reason: '取消菜单不应进入详情');
+
+    await tester.tap(sessionCard);
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('sessionActionSheet')),
+      reason: '再次单击未打开操作菜单',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sessionAction-detail')));
     await _pumpUntil(tester, find.text('课程信息'), reason: '未进入课程详情');
 
     await tester.tap(find.byKey(const Key('openNotesButton')));
@@ -423,6 +444,20 @@ void main() {
         reason: '日签应完整显示七天',
       );
     }
+
+    final weekSessionCard = find.byKey(const ValueKey('session-session-1'));
+    await tester.ensureVisible(weekSessionCard);
+    await tester.pumpAndSettle();
+    await tester.tap(weekSessionCard);
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('sessionActionSheet')),
+      reason: '周课表按日列表单击未打开操作菜单',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('课程详情'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('sessionActionClose')));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 

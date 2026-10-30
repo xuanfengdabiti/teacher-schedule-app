@@ -183,7 +183,7 @@ void main() {
     expect(find.text('100%'), findsOneWidget);
   });
 
-  testWidgets('放大后点击课程仍回调对应课次', (tester) async {
+  testWidgets('从课程块中心双指放大不误开详情，抬指后点击仍对课次', (tester) async {
     Session? opened;
     await _pumpOverview(
       tester,
@@ -206,6 +206,7 @@ void main() {
 
     final controller = _controller(tester);
     expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.2));
+    expect(opened, isNull, reason: '双指缩放不应触发课程详情');
 
     await tester.tap(block);
     await tester.pumpAndSettle();
@@ -213,6 +214,136 @@ void main() {
     expect(opened, isNotNull);
     expect(opened!.id, 'session-2');
     expect(opened!.courseName, '大学物理');
+  });
+
+  testWidgets('不再显示手势说明和加减按钮', (tester) async {
+    await _pumpOverview(
+      tester,
+      size: const Size(400, 800),
+      sessions: [_session(id: 'session-1', date: _monday)],
+    );
+
+    expect(find.textContaining('双指缩放'), findsNothing);
+    expect(find.textContaining('天有课'), findsNothing);
+    expect(find.textContaining('拖动'), findsNothing);
+    expect(find.byIcon(Icons.pinch_outlined), findsNothing);
+    expect(find.byKey(const Key('weekOverviewZoomIn')), findsNothing);
+    expect(find.byKey(const Key('weekOverviewZoomOut')), findsNothing);
+    expect(find.byIcon(Icons.add), findsNothing);
+    expect(find.byIcon(Icons.remove), findsNothing);
+    expect(find.byKey(const Key('weekOverviewReset')), findsOneWidget);
+  });
+
+  testWidgets('先单指轻拖再加第二指仍可双指放大', (tester) async {
+    await _pumpOverview(
+      tester,
+      size: const Size(400, 800),
+      sessions: [_session(id: 'session-1', date: _monday)],
+    );
+
+    final viewer = find.byKey(const Key('weekOverviewViewport'));
+    final controller = _controller(tester);
+    final center = tester.getCenter(viewer);
+    final first = await tester.createGesture(pointer: 21);
+    final second = await tester.createGesture(pointer: 22);
+
+    await first.down(center - const Offset(30, 0));
+    await first.moveTo(center - const Offset(50, 0));
+    await tester.pump();
+
+    await second.down(center + const Offset(20, 0));
+    await tester.pump();
+    for (var step = 1; step <= 4; step++) {
+      await first.moveTo(center - Offset(50 + step * 10, 0));
+      await second.moveTo(center + Offset(20 + step * 10, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+
+    expect(controller.value.getMaxScaleOnAxis(), greaterThan(1.1));
+  });
+
+  testWidgets('双指缩小回1倍并保持平移边界，复位归零', (tester) async {
+    await _pumpOverview(
+      tester,
+      size: const Size(400, 430),
+      sessions: [
+        _session(
+          id: 'session-1',
+          date: _monday.add(const Duration(days: 4)),
+          startPeriod: 7,
+          endPeriod: 8,
+          courseName: '晚课专题',
+        ),
+      ],
+    );
+
+    final viewer = find.byKey(const Key('weekOverviewViewport'));
+    final canvas = find.byKey(const Key('weekOverviewCanvas'));
+    final controller = _controller(tester);
+    final viewportSize = tester.getSize(viewer);
+    final childSize = tester.getSize(canvas);
+
+    await _pinch(tester, tester.getCenter(viewer), start: 20, end: 70);
+    final zoomedScale = controller.value.getMaxScaleOnAxis();
+    expect(zoomedScale, greaterThan(1.2));
+
+    await tester.drag(viewer, const Offset(-1000, -1000));
+    await tester.pumpAndSettle();
+
+    final panScale = controller.value.getMaxScaleOnAxis();
+    final panTranslation = controller.value.getTranslation();
+    expect(
+      panTranslation.x,
+      closeTo(viewportSize.width - childSize.width * panScale, 0.5),
+    );
+    expect(
+      panTranslation.y,
+      closeTo(viewportSize.height - childSize.height * panScale, 0.5),
+    );
+
+    await _pinch(tester, tester.getCenter(viewer), start: 80, end: 20);
+
+    final scale = controller.value.getMaxScaleOnAxis();
+    final translation = controller.value.getTranslation();
+    final minY = viewportSize.height - childSize.height * scale;
+    expect(scale, closeTo(1, 0.01));
+    expect(translation.x, closeTo(0, 0.5));
+    expect(translation.y, lessThanOrEqualTo(0));
+    expect(translation.y, greaterThanOrEqualTo(minY - 0.5));
+
+    await tester.tap(find.byKey(const Key('weekOverviewReset')));
+    await tester.pumpAndSettle();
+    expect(controller.value.storage, orderedEquals(Matrix4.identity().storage));
+  });
+
+  testWidgets('父级重建传入新的课程列表不重置当前缩放', (tester) async {
+    await _pumpOverview(
+      tester,
+      size: const Size(400, 800),
+      sessions: [_session(id: 'session-1', date: _monday)],
+    );
+
+    final controller = _controller(tester);
+    final viewer = find.byKey(const Key('weekOverviewViewport'));
+    await _pinch(tester, tester.getCenter(viewer), start: 20, end: 60);
+    final zoomedScale = controller.value.getMaxScaleOnAxis();
+    expect(zoomedScale, greaterThan(1.2));
+
+    await _pumpOverview(
+      tester,
+      size: const Size(400, 800),
+      sessions: [_session(id: 'session-1', date: _monday)],
+    );
+
+    expect(identical(controller, _controller(tester)), isTrue);
+    expect(
+      _controller(tester).value.getMaxScaleOnAxis(),
+      closeTo(zoomedScale, 0.001),
+      reason: '普通父级重建不应把用户刚放大的课表复位',
+    );
   });
 
   testWidgets('两节课程有空间时直接显示备注摘要', (tester) async {
