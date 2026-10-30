@@ -6,6 +6,8 @@
 
 2026-10-28 的个人资料、修改密码与字号功能继续复用已引入的 Flutter Material、Riverpod、Dio、SharedPreferences 及 dj-rest-auth/allauth 账号接口。字号使用 Flutter 自带 MediaQuery/TextScaler，不引入新的表单、设置或认证库，不复制第三方源码；许可证与锁定版本沿用下表。
 
+2026-10-30 的蓝白界面预览继续复用现有 Flutter Material 主题、表单和底部菜单，整周课表缩放使用锁定 Flutter SDK 的 `InteractiveViewer` / `TransformationController`（BSD-3-Clause，保留 SDK 许可声明）。已检查现有 SDK 能满足双指缩放和平移，不新增日历、手势、UI 组件库或依赖；参考图只用于本项目页面设计，不复制其他 App 源码。
+
 ## 默认候选
 
 Flutter、Riverpod、go_router、Dio、flutter_secure_storage 与 SharedPreferences 已实际使用并完成 Android APK 构建。Drift、calendar_view、flutter_local_notifications 与个推插件仍只是原方案候选，未引入当前本地演示版。真实 SMTP、远程推送与 iOS 构建不在本次验收范围。

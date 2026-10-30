@@ -18,6 +18,7 @@ import '../collaboration/reschedule_requests_page.dart';
 import '../teaching/handoff_list_page.dart';
 import 'models.dart';
 import 'schedule_controller.dart';
+import 'session_action_sheet.dart';
 import 'session_card.dart';
 
 class TodayPage extends ConsumerStatefulWidget {
@@ -51,6 +52,16 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
   void _openNotificationObject(String objectType, String objectId) {
     unawaited(_routeNotificationObject(objectType, objectId));
+  }
+
+  void _openSessionActions(Session session) {
+    unawaited(
+      showSessionActionSheet(
+        context: context,
+        session: session,
+        api: ref.read(apiClientProvider),
+      ),
+    );
   }
 
   Future<void> _routeNotificationObject(
@@ -188,7 +199,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('今天'),
+        title: const Text('我的课表'),
         actions: [
           IconButton(
             key: const Key('notificationsButton'),
@@ -220,7 +231,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
                 child: _TodayHeader(date: today, teachingWeek: teachingWeek),
               ),
             ),
@@ -259,35 +270,40 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               )
             else ...[
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 sliver: SliverToBoxAdapter(
                   child: Row(
                     children: [
                       Text(
                         '今日课程',
-                        style: Theme.of(context).textTheme.titleMedium,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: appInk,
+                        ),
                       ),
                       const Spacer(),
                       Text(
                         '${sessions.length} 节',
-                        style: const TextStyle(fontSize: 14, color: appMuted),
+                        style: const TextStyle(fontSize: 12, color: appMuted),
                       ),
                     ],
                   ),
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                 sliver: SliverList.builder(
                   itemCount: sessions.length,
                   itemBuilder: (context, index) {
                     final session = sessions[index];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: 8),
                       child: SessionCard(
                         key: ValueKey('session-${session.id}'),
                         session: session,
                         onTap: () => context.push('/sessions/${session.id}'),
+                        onLongPress: () => _openSessionActions(session),
                       ),
                     );
                   },
@@ -309,41 +325,65 @@ class _TodayHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            '${monthDayZh(date)} ${weekdayZh(date.weekday)}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 19,
+              height: 1.25,
+              fontWeight: FontWeight.w700,
+              color: appInk,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        _HeaderTag(
+          label: teachingWeek == null ? '学期外' : '第$teachingWeek周',
+          color: appMuted,
+          background: Colors.white,
+          borderColor: appLine,
+        ),
+        const SizedBox(width: 6),
+        const _HeaderTag(label: '今天', color: appTeal, background: appBlueSoft),
+      ],
+    );
+  }
+}
+
+class _HeaderTag extends StatelessWidget {
+  const _HeaderTag({
+    required this.label,
+    required this.color,
+    required this.background,
+    this.borderColor,
+  });
+
+  final String label;
+  final Color color;
+  final Color background;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF5F2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD5E9E4)),
+        color: background,
+        borderRadius: BorderRadius.circular(7),
+        border: borderColor == null ? null : Border.all(color: borderColor!),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '${monthDayZh(date)} ${weekdayZh(date.weekday)}',
-              style: const TextStyle(
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                color: appInk,
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              teachingWeek == null ? '学期外' : '第$teachingWeek周',
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: appTeal,
-              ),
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }

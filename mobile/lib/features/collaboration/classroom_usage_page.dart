@@ -10,6 +10,9 @@ import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
 import 'inquiry_compose_page.dart';
 
+const _warm = Color(0xFFB7791F);
+const _danger = Color(0xFFB3261E);
+
 class ClassroomUsagePage extends StatefulWidget {
   const ClassroomUsagePage({
     super.key,
@@ -159,40 +162,17 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
                     onRefresh: () => _load(keepData: true),
                     child: ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      padding: const EdgeInsets.fromLTRB(14, 6, 14, 20),
                       children: [
                         _buildHeader(data),
                         const SizedBox(height: 10),
-                        const CollabNotice(
-                          text: '排定课程记录，不代表实际到场或物品去向。',
-                          icon: Icons.info_outline,
-                        ),
-                        const SizedBox(height: 12),
                         if (data.entries.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 50),
-                            child: EmptyView(
-                              title: '当天没有记录',
-                              detail: '可切换日期查看其它安排。',
-                              icon: Icons.event_busy_outlined,
-                            ),
-                          )
+                          const _EmptyUsage()
                         else
-                          for (
-                            var index = 0;
-                            index < data.entries.length;
-                            index++
-                          )
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _UsageEntryCard(
-                                key: ValueKey(
-                                  'usage-${data.entries[index].kind}-${data.entries[index].sessionId ?? data.entries[index].roomBlockId ?? index}',
-                                ),
-                                entry: data.entries[index],
-                                onContact: _openContact,
-                              ),
-                            ),
+                          _UsageTimeline(
+                            entries: data.entries,
+                            onContact: _openContact,
+                          ),
                       ],
                     ),
                   ),
@@ -203,68 +183,162 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
   }
 
   Widget _buildHeader(ClassroomUsageData data) {
-    return CollabSectionCard(
+    final notice = data.notice.trim().isEmpty
+        ? '排定课程记录，不代表实际到场或物品去向。'
+        : data.notice.trim();
+    return _Panel(
+      padding: const EdgeInsets.fromLTRB(13, 12, 13, 11),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: 3,
+                height: 34,
+                margin: const EdgeInsets.only(top: 2),
+                decoration: BoxDecoration(
+                  color: appTeal,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       data.classroom.classroomCode,
-                      style: Theme.of(context).textTheme.titleLarge,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700,
+                        color: appInk,
+                      ),
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       data.classroom.location,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        height: 1.45,
+                        color: appMuted,
+                      ),
                     ),
                   ],
                 ),
               ),
               if (!data.complete)
-                const CollabStatusPill(
-                  label: '部分安排待确认',
-                  color: Color(0xFFB7791F),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _warm.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    '部分待确认',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: _warm,
+                    ),
+                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconButton.outlined(
-                onPressed: () => _shiftDay(-1),
-                icon: const Icon(Icons.chevron_left),
-                tooltip: '前一天',
+          const SizedBox(height: 10),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFD),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: appLine),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => _shiftDay(-1),
+                  icon: const Icon(Icons.chevron_left, size: 20),
+                  tooltip: '前一天',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickDay,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        '${dateLabel(_date)} · ${weekdayZh(_date.weekday)}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: appInk,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _shiftDay(1),
+                  icon: const Icon(Icons.chevron_right, size: 20),
+                  tooltip: '后一天',
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _openInquiry,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(40),
+                foregroundColor: appTeal,
+                side: const BorderSide(color: appLine),
+                textStyle: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(9),
+                ),
               ),
+              icon: const Icon(Icons.search_outlined, size: 17),
+              label: const Text('发起失物询问'),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info_outline, size: 14, color: appMuted),
+              const SizedBox(width: 5),
               Expanded(
-                child: TextButton(
-                  onPressed: _pickDay,
-                  child: Text(
-                    '${dateLabel(_date)} · ${weekdayZh(_date.weekday)}',
-                    style: Theme.of(context).textTheme.titleMedium,
+                child: Text(
+                  notice,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    height: 1.4,
+                    color: appMuted,
                   ),
                 ),
               ),
-              IconButton.outlined(
-                onPressed: () => _shiftDay(1),
-                icon: const Icon(Icons.chevron_right),
-                tooltip: '后一天',
-              ),
             ],
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: _openInquiry,
-              icon: const Icon(Icons.search_outlined),
-              label: const Text('发起失物询问'),
-            ),
           ),
         ],
       ),
@@ -272,8 +346,86 @@ class _ClassroomUsagePageState extends State<ClassroomUsagePage> {
   }
 }
 
-class _UsageEntryCard extends StatelessWidget {
-  const _UsageEntryCard({
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child, required this.padding});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: appLine),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _EmptyUsage extends StatelessWidget {
+  const _EmptyUsage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _Panel(
+      padding: EdgeInsets.fromLTRB(14, 24, 14, 24),
+      child: Column(
+        children: [
+          Icon(Icons.event_busy_outlined, size: 26, color: appMuted),
+          SizedBox(height: 8),
+          Text(
+            '当天没有记录',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: appInk,
+            ),
+          ),
+          SizedBox(height: 3),
+          Text(
+            '可切换日期查看其它安排。',
+            style: TextStyle(fontSize: 12.5, color: appMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageTimeline extends StatelessWidget {
+  const _UsageTimeline({required this.entries, required this.onContact});
+
+  final List<ClassroomUsageEntry> entries;
+  final ValueChanged<ClassroomUsageTeacher> onContact;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          for (var index = 0; index < entries.length; index++) ...[
+            if (index > 0) const Divider(height: 1),
+            _UsageEntryRow(
+              key: ValueKey(
+                'usage-${entries[index].kind}-${entries[index].sessionId ?? entries[index].roomBlockId ?? index}',
+              ),
+              entry: entries[index],
+              onContact: onContact,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageEntryRow extends StatelessWidget {
+  const _UsageEntryRow({
     super.key,
     required this.entry,
     required this.onContact,
@@ -284,8 +436,8 @@ class _UsageEntryCard extends StatelessWidget {
 
   Color get _kindColor => switch (entry.kind) {
     'session' => appTeal,
-    'cancelled_session' => const Color(0xFFB3261E),
-    'moved_out' => const Color(0xFFB7791F),
+    'cancelled_session' => _danger,
+    'moved_out' => _warm,
     'room_block' => appMuted,
     _ => appMuted,
   };
@@ -300,87 +452,210 @@ class _UsageEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = entry.status;
-    final statusText = switch (status) {
+    final statusText = switch (entry.status) {
       'scheduled' => '已排定',
       'completed' => '已完成',
       'cancelled' => '已停课',
       _ => null,
     };
-    return CollabSectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 10),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 54,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _clock(entry.startAt),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: appInk,
+                    ),
+                  ),
+                  Text(
+                    _clock(entry.endAt),
+                    style: const TextStyle(fontSize: 12, color: appMuted),
+                  ),
+                  if (entry.periodLabelText.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.periodLabelText.replaceAll(' ', ''),
+                      style: const TextStyle(fontSize: 10.5, color: appMuted),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            SizedBox(
+              width: 16,
+              child: Column(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    margin: const EdgeInsets.only(top: 4),
+                    decoration: BoxDecoration(
+                      color: _kindColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Expanded(child: Container(width: 1, color: appLine)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(_kindIcon, size: 15, color: _kindColor),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          entry.kindLabel,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: _kindColor,
+                          ),
+                        ),
+                      ),
+                      if (statusText != null)
+                        Text(
+                          statusText,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: appMuted,
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (entry.courseName != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.courseName!,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: appInk,
+                      ),
+                    ),
+                  ],
+                  if (entry.teachingClass != null &&
+                      entry.teachingClass!.isNotEmpty) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      entry.teachingClass!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: appMuted,
+                      ),
+                    ),
+                  ],
+                  if (entry.kind == 'room_block' &&
+                      entry.reason != null &&
+                      entry.reason!.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.reason!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: appMuted,
+                      ),
+                    ),
+                  ],
+                  if (entry.kind == 'moved_out' &&
+                      entry.currentClassroomCode != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      '现调至 ${entry.currentClassroomCode} · '
+                      '${rangeLabel(entry.currentStartAt, entry.currentEndAt)}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.4,
+                        color: _warm,
+                      ),
+                    ),
+                  ],
+                  if (entry.statusReason?.isNotEmpty == true) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.statusReason!,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.4,
+                        color: appMuted,
+                      ),
+                    ),
+                  ],
+                  if (entry.teachers.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    for (final teacher in entry.teachers)
+                      _TeacherLine(teacher: teacher, onContact: onContact),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TeacherLine extends StatelessWidget {
+  const _TeacherLine({required this.teacher, required this.onContact});
+
+  final ClassroomUsageTeacher teacher;
+  final ValueChanged<ClassroomUsageTeacher> onContact;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 28),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(_kindIcon, size: 19, color: _kindColor),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  entry.kindLabel,
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(color: _kindColor),
+          const Icon(Icons.person_outline, size: 14, color: appMuted),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              teacher.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12.5, color: appInk),
+            ),
+          ),
+          if (teacher.hasVisibleContact)
+            TextButton(
+              key: ValueKey('usage-contact-${teacher.id}'),
+              onPressed: () => onContact(teacher),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 26),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              Text(
-                entry.periodLabelText.isEmpty ? '' : entry.periodLabelText,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            rangeLabel(entry.startAt, entry.endAt),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          if (entry.courseName != null) ...[
-            const SizedBox(height: 8),
-            CollabDetailRow(label: '课程', value: entry.courseName!),
-            if (entry.teachingClass != null && entry.teachingClass!.isNotEmpty)
-              CollabDetailRow(label: '教学班', value: entry.teachingClass!),
-          ],
-          if (entry.kind == 'room_block') ...[
-            if (entry.reason != null && entry.reason!.isNotEmpty)
-              CollabDetailRow(label: '原因', value: entry.reason!),
-          ],
-          if (entry.kind == 'moved_out' && entry.currentClassroomCode != null)
-            CollabDetailRow(
-              label: '现调至',
-              value:
-                  '${entry.currentClassroomCode} · ${rangeLabel(entry.currentStartAt, entry.currentEndAt)}',
-              valueColor: const Color(0xFFB7791F),
+              child: const Text('联系方式'),
+            )
+          else
+            const Text(
+              '联系方式不可查看',
+              style: TextStyle(fontSize: 11, color: appMuted),
             ),
-          if (statusText != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '状态：$statusText${entry.statusReason?.isNotEmpty == true ? ' · ${entry.statusReason}' : ''}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          if (entry.teachers.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text('相关教师', style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final teacher in entry.teachers)
-                  teacher.hasVisibleContact
-                      ? ActionChip(
-                          key: ValueKey('usage-contact-${teacher.id}'),
-                          avatar: const Icon(Icons.person_outline, size: 17),
-                          label: Text(teacher.name),
-                          onPressed: () => onContact(teacher),
-                        )
-                      : Chip(
-                          avatar: const Icon(Icons.person_outline, size: 17),
-                          label: Text('${teacher.name} · 联系方式暂不可查看'),
-                        ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -454,10 +729,10 @@ class _TeacherContactSheetState extends State<_TeacherContactSheet> {
     final contact = _contact;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
         child: contact == null
             ? SizedBox(
-                height: 220,
+                height: 190,
                 child: _loading
                     ? const LoadingView(message: '正在读取联系方式…')
                     : Column(
@@ -465,14 +740,21 @@ class _TeacherContactSheetState extends State<_TeacherContactSheet> {
                         children: [
                           Text(
                             _error == null ? '没有联系方式' : '联系方式读取失败',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: appInk,
+                            ),
                           ),
                           if (_error != null) ...[
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Text(
                               ApiException.fromUnknown(_error!).message,
                               textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodySmall,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: appMuted,
+                              ),
                             ),
                             TextButton(
                               onPressed: _load,
@@ -488,14 +770,18 @@ class _TeacherContactSheetState extends State<_TeacherContactSheet> {
                 children: [
                   Text(
                     contact.name,
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: appInk,
+                    ),
                   ),
                   if (contact.department.isNotEmpty)
                     Text(
                       contact.department,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: const TextStyle(fontSize: 12.5, color: appMuted),
                     ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   _ContactRow(
                     label: '电话',
                     value: contact.phone,
@@ -504,7 +790,7 @@ class _TeacherContactSheetState extends State<_TeacherContactSheet> {
                         ? null
                         : () => _copy('电话', contact.phone!),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 7),
                   _ContactRow(
                     label: '微信',
                     value: contact.wechat,
@@ -538,10 +824,10 @@ class _ContactRow extends StatelessWidget {
     final visible = status == 'visible' && value != null && value!.isNotEmpty;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7FAF9),
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: appLine),
       ),
       child: Row(
@@ -550,11 +836,14 @@ class _ContactRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 11.5, color: appMuted),
+                ),
+                const SizedBox(height: 1),
                 Text(
                   visible ? value! : contactStatusLabel(status),
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  style: const TextStyle(fontSize: 13.5, color: appInk),
                 ),
               ],
             ),
@@ -562,11 +851,16 @@ class _ContactRow extends StatelessWidget {
           if (visible)
             IconButton(
               onPressed: onCopy,
-              icon: const Icon(Icons.copy_outlined),
+              icon: const Icon(Icons.copy_outlined, size: 18),
               tooltip: '复制',
+              visualDensity: VisualDensity.compact,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
             ),
         ],
       ),
     );
   }
 }
+
+String _clock(DateTime? value) => value == null ? '--:--' : timeZh(value);

@@ -11,6 +11,17 @@ import '../schedule/models.dart';
 import 'collaboration_models.dart';
 import 'collaboration_ui.dart';
 
+const _warm = Color(0xFFB7791F);
+const _danger = Color(0xFFC2410C);
+const _softFill = Color(0xFFF8FAFD);
+
+Color _eligibilityColor(String eligibility) => switch (eligibility) {
+  'available' => appTeal,
+  'unverified' => _warm,
+  'conflict' => _danger,
+  _ => appMuted,
+};
+
 class ReschedulePage extends StatefulWidget {
   const ReschedulePage({super.key, required this.api, required this.sessionId});
 
@@ -231,7 +242,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
   Widget build(BuildContext context) {
     final data = _data;
     return Scaffold(
-      appBar: AppBar(title: const Text('调课申请')),
+      appBar: AppBar(title: const Text('查询调课')),
       body: data == null
           ? _loading
                 ? const LoadingView(message: '正在检查可用时段…')
@@ -252,7 +263,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
                         onRefresh: () => _load(keepData: true),
                         child: ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                          padding: const EdgeInsets.fromLTRB(14, 6, 14, 20),
                           children: [
                             _buildHeader(data),
                             ..._buildGroups(data.options),
@@ -275,97 +286,128 @@ class _ReschedulePageState extends State<ReschedulePage> {
     final option = _selected;
     return Material(
       color: Colors.white,
-      elevation: 8,
+      elevation: 4,
+      shadowColor: const Color(0x14000000),
       child: SafeArea(
         top: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (option == null)
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.touch_app_outlined,
-                      size: 18,
-                      color: appMuted,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '先在上方选择可用或需确认时段',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                )
-              else
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.check_circle_outline,
-                      size: 18,
-                      color: appTeal,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${dateLabel(option.startAt)} · '
-                        '${periodLabel(option.startPeriod, option.endPeriod)} · '
-                        '${option.classroomCode}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    if (option.isUnverified) ...[
-                      const SizedBox(width: 6),
-                      CollabStatusPill(
-                        label: '需确认',
-                        color: rescheduleEligibilityColor('unverified'),
+        child: Container(
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: appLine)),
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (option == null)
+                  const Row(
+                    children: [
+                      Icon(Icons.touch_app_outlined, size: 16, color: appMuted),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '先选择上方可用或需确认的时段',
+                          style: TextStyle(fontSize: 12.5, color: appMuted),
+                        ),
                       ),
                     ],
-                  ],
-                ),
-              const SizedBox(height: 8),
-              TextField(
-                key: const ValueKey('reschedule-reason'),
-                controller: _reason,
-                minLines: 1,
-                maxLines: 2,
-                maxLength: 500,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  labelText: '调课原因（必填）',
-                  hintText: '说明为什么需要调整，便于教务审批',
-                  counterText: '',
-                ),
-              ),
-              const SizedBox(height: 6),
-              FilledButton.icon(
-                key: const ValueKey('reschedule-submit'),
-                onPressed: option == null || _submitting || _loading
-                    ? null
-                    : _submit,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44),
-                ),
-                icon: _submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+                  )
+                else
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle_outline,
+                        size: 16,
+                        color: appTeal,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '${dateLabel(option.startAt)} · '
+                          '${periodLabel(option.startPeriod, option.endPeriod)} · '
+                          '${option.classroomCode}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: appInk,
+                          ),
                         ),
-                      )
-                    : const Icon(Icons.send_outlined),
-                label: Text(_submitting ? '提交中…' : '提交申请'),
-              ),
-            ],
+                      ),
+                      if (option.isUnverified) ...[
+                        const SizedBox(width: 6),
+                        _StatusTag(
+                          label: '需确认',
+                          color: _eligibilityColor('unverified'),
+                        ),
+                      ],
+                    ],
+                  ),
+                const SizedBox(height: 7),
+                TextField(
+                  key: const ValueKey('reschedule-reason'),
+                  controller: _reason,
+                  minLines: 1,
+                  maxLines: 2,
+                  maxLength: 500,
+                  style: const TextStyle(fontSize: 13.5, height: 1.45),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    labelText: '调课原因（必填）',
+                    hintText: '简要说明原因',
+                    counterText: '',
+                    filled: true,
+                    fillColor: _softFill,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: appLine),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: appLine),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: appTeal, width: 1.2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                FilledButton.icon(
+                  key: const ValueKey('reschedule-submit'),
+                  onPressed: option == null || _submitting || _loading
+                      ? null
+                      : _submit,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(42),
+                    textStyle: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_outlined, size: 17),
+                  label: Text(_submitting ? '提交中…' : '提交申请'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -381,72 +423,87 @@ class _ReschedulePageState extends State<ReschedulePage> {
         ? null
         : '${dateLabel(source.date)} ${periodLabel(source.startPeriod, source.endPeriod)}'
               '${source.classroom.displayName.isEmpty ? '' : ' · ${source.classroom.displayName}'}';
-    return CollabSectionCard(
+    return _Panel(
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: 3,
+                height: 32,
+                margin: const EdgeInsets.only(top: 1),
+                decoration: BoxDecoration(
+                  color: appTeal,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 9),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       source?.courseName ?? '调课申请',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: appInk,
+                      ),
                     ),
                     if (sourceDetail != null) ...[
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
                         sourceDetail,
-                        style: Theme.of(context).textTheme.bodySmall,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          height: 1.4,
+                          color: appMuted,
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
               if (!data.complete)
-                const CollabStatusPill(
-                  label: '部分安排待确认',
-                  color: Color(0xFFB7791F),
-                ),
+                const _StatusTag(label: '部分待确认', color: _warm),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            '${dateLabel(_from)} — ${dateLabel(_until)}'
-            '${_classroomFilter.isEmpty ? '' : ' · 已筛选 ${_classroomFilter.length} 间教室'}',
-            style: Theme.of(context).textTheme.bodySmall,
+          const SizedBox(height: 9),
+          const Divider(height: 1),
+          _FilterRow(
+            icon: Icons.date_range_outlined,
+            label: '日期范围',
+            value: '${dateLabel(_from)} — ${dateLabel(_until)}',
+            onTap: _pickRange,
           ),
-          const SizedBox(height: 12),
+          const Divider(height: 1),
+          _FilterRow(
+            icon: Icons.meeting_room_outlined,
+            label: '教室条件',
+            value: _classroomFilter.isEmpty
+                ? '全部教室'
+                : '已选 ${_classroomFilter.length} 间教室',
+            onTap: _pickClassrooms,
+          ),
+          const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 12,
+            runSpacing: 4,
             children: [
-              OutlinedButton.icon(
-                onPressed: _pickRange,
-                icon: const Icon(Icons.date_range_outlined, size: 18),
-                label: const Text('日期范围'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _pickClassrooms,
-                icon: const Icon(Icons.meeting_room_outlined, size: 18),
-                label: Text(
-                  _classroomFilter.isEmpty
-                      ? '教室条件'
-                      : '教室 ${_classroomFilter.length}',
-                ),
-              ),
+              _CountLabel(label: '可用 $available', color: appTeal),
+              _CountLabel(label: '需确认 $unverified', color: _warm),
+              _CountLabel(label: '已知冲突 $conflicts', color: _danger),
             ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            '可用 $available · 需确认 $unverified · 已知冲突 $conflicts',
-            style: Theme.of(context).textTheme.bodySmall,
           ),
           if (_classroomFilter.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 7),
               child: Wrap(
                 spacing: 6,
                 runSpacing: 6,
@@ -462,6 +519,10 @@ class _ReschedulePageState extends State<ReschedulePage> {
                           });
                           _load();
                         },
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        labelStyle: const TextStyle(fontSize: 12.5),
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
                       ),
                     )
                     .toList(growable: false),
@@ -486,34 +547,32 @@ class _ReschedulePageState extends State<ReschedulePage> {
       ),
       (
         key: 'conflict',
-        title: '已知冲突（不可直接提交）',
+        title: '已知冲突',
         items: options.where((item) => item.isConflict).toList(),
       ),
     ];
     return [
       for (final group in groups)
         if (group.items.isNotEmpty) ...[
-          CollabSectionTitle(
+          _GroupHeader(
             title: group.title,
             subtitle: group.key == 'unverified'
-                ? '可选，提交后会标记为待教务核验'
+                ? '可选，提交后标记为待教务核验'
                 : group.key == 'conflict'
                 ? '仅供查看，不能选中提交'
                 : null,
-            trailing: CollabStatusPill(
-              label: '${group.items.length}',
-              color: rescheduleEligibilityColor(
-                group.key == 'available'
-                    ? 'available'
-                    : group.key == 'unverified'
-                    ? 'unverified'
-                    : 'conflict',
-              ),
+            count: group.items.length,
+            color: _eligibilityColor(
+              group.key == 'available'
+                  ? 'available'
+                  : group.key == 'unverified'
+                  ? 'unverified'
+                  : 'conflict',
             ),
           ),
           for (var index = 0; index < group.items.length; index++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.only(bottom: 7),
               child: _OptionCard(
                 key: ValueKey('reschedule-option-${group.key}-$index'),
                 option: group.items[index],
@@ -525,7 +584,7 @@ class _ReschedulePageState extends State<ReschedulePage> {
             ),
         ],
       if (options.isEmpty) ...[
-        const SizedBox(height: 28),
+        const SizedBox(height: 20),
         const EmptyView(
           title: '这段时间没有候选时段',
           detail: '可以调整日期范围或教室条件后重试。',
@@ -533,6 +592,199 @@ class _ReschedulePageState extends State<ReschedulePage> {
         ),
       ],
     ];
+  }
+}
+
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child, required this.padding});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: appLine),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _FilterRow extends StatelessWidget {
+  const _FilterRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 17, color: appMuted),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 58,
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 12.5, color: appMuted),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: appInk,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 17, color: appMuted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CountLabel extends StatelessWidget {
+  const _CountLabel({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 5,
+          height: 5,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusTag extends StatelessWidget {
+  const _StatusTag({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({
+    required this.title,
+    required this.count,
+    required this.color,
+    this.subtitle,
+  });
+
+  final String title;
+  final int count;
+  final Color color;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(2, 13, 2, 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            margin: const EdgeInsets.only(top: 6),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    color: appInk,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: appMuted,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Text(
+            '$count 个',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -550,22 +802,22 @@ class _OptionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = rescheduleEligibilityColor(option.eligibility);
+    final color = _eligibilityColor(option.eligibility);
     final missing = option.missingData.map(coverageLabel).toSet().toList();
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        color: selected ? const Color(0xFFF4F8FF) : Colors.white,
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: selected ? appTeal : appLine,
-          width: selected ? 2 : 1,
+          width: selected ? 1.4 : 1,
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(10),
         onTap: onSelect,
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(11, 9, 11, 9),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -574,71 +826,91 @@ class _OptionCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      '${dateLabel(option.startAt)} · ${periodLabel(option.startPeriod, option.endPeriod)}',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      '${dateLabel(option.startAt)} · '
+                      '${periodLabel(option.startPeriod, option.endPeriod)}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                        color: appInk,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  CollabStatusPill(label: option.label, color: color),
+                  const SizedBox(width: 7),
+                  _StatusTag(label: option.label, color: color),
+                  if (selected) ...[
+                    const SizedBox(width: 5),
+                    const Icon(Icons.check_circle, color: appMint, size: 17),
+                  ],
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 3),
               Row(
                 children: [
                   const Icon(
                     Icons.meeting_room_outlined,
-                    size: 17,
+                    size: 15,
                     color: appMuted,
                   ),
-                  const SizedBox(width: 5),
-                  Expanded(child: Text(option.classroomCode)),
-                  if (selected)
-                    const Icon(Icons.check_circle, color: appTeal, size: 20),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      option.classroomCode,
+                      style: const TextStyle(fontSize: 12.5, color: appInk),
+                    ),
+                  ),
+                  if (option.isConflict)
+                    const Text(
+                      '不可选',
+                      style: TextStyle(fontSize: 11.5, color: _danger),
+                    ),
                 ],
               ),
               if (option.studentConflictCount > 0) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   '学生冲突 ${option.studentConflictCount} 人',
-                  style: Theme.of(context).textTheme.bodySmall
-                      ?.copyWith(color: color),
+                  style: TextStyle(fontSize: 12, color: color),
                 ),
               ],
               if (option.reasons.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 for (final reason in option.reasons)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
+                    padding: const EdgeInsets.only(bottom: 2),
                     child: Text(
                       '· $reason',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: appMuted,
+                      ),
                     ),
                   ),
               ],
               if (option.conflicts.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 3),
                 for (final conflict in option.conflicts)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
+                    padding: const EdgeInsets.only(bottom: 2),
                     child: Text(
                       '· ${conflict.label}',
-                      style: Theme.of(context).textTheme.bodySmall
-                          ?.copyWith(color: color),
+                      style: TextStyle(fontSize: 12, color: color),
                     ),
                   ),
               ],
               if (missing.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text(
                   '还缺：${missing.join('、')}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: const TextStyle(fontSize: 12, color: appMuted),
                 ),
               ],
               if (option.isUnverified) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '该时段课表信息不全，提交后需要教务确认。',
-                  style: Theme.of(context).textTheme.bodySmall,
+                const SizedBox(height: 4),
+                const Text(
+                  '课表信息不全，提交后需教务确认。',
+                  style: TextStyle(fontSize: 12, height: 1.4, color: _warm),
                 ),
               ],
             ],
@@ -742,16 +1014,20 @@ class _ClassroomFilterSheetState extends State<_ClassroomFilterSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Expanded(
+                const Expanded(
                   child: Text(
                     '按教室筛选（可选）',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: appInk,
+                    ),
                   ),
                 ),
                 TextButton(
@@ -760,21 +1036,45 @@ class _ClassroomFilterSheetState extends State<_ClassroomFilterSheet> {
                 ),
               ],
             ),
+            const SizedBox(height: 2),
             TextField(
               controller: _search,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
+              style: const TextStyle(fontSize: 13.5),
+              decoration: InputDecoration(
+                isDense: true,
+                prefixIcon: const Icon(Icons.search, size: 19),
                 hintText: '搜索教室代码、楼宇或房间',
+                filled: true,
+                fillColor: _softFill,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: appLine),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: appLine),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: appTeal, width: 1.2),
+                ),
               ),
             ),
             if (_loading) const CollabInlineProgress(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             if (_error != null)
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 child: Column(
                   children: [
-                    Text(ApiException.fromUnknown(_error!).message),
+                    Text(
+                      ApiException.fromUnknown(_error!).message,
+                      style: const TextStyle(fontSize: 13, color: appMuted),
+                    ),
                     TextButton(onPressed: _load, child: const Text('重试')),
                   ],
                 ),
@@ -796,9 +1096,15 @@ class _ClassroomFilterSheetState extends State<_ClassroomFilterSheet> {
                         }
                       });
                     },
-                    title: Text(room.classroomCode),
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      room.classroomCode,
+                      style: const TextStyle(fontSize: 14, color: appInk),
+                    ),
                     subtitle: Text(
                       '${room.location} · 容量 ${room.capacity}${room.isActive ? '' : ' · 停用'}',
+                      style: const TextStyle(fontSize: 12, color: appMuted),
                     ),
                     controlAffinity: ListTileControlAffinity.leading,
                   );
@@ -807,6 +1113,16 @@ class _ClassroomFilterSheetState extends State<_ClassroomFilterSheet> {
             ),
             FilledButton(
               onPressed: _apply,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(42),
+                textStyle: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(9),
+                ),
+              ),
               child: Text(
                 '应用${_selected.isEmpty ? '' : '（${_selected.length}）'}',
               ),

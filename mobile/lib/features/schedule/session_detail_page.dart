@@ -31,7 +31,7 @@ class SessionDetailPage extends ConsumerWidget {
           IconButton(
             tooltip: '刷新',
             onPressed: () => ref.invalidate(sessionDetailProvider(sessionId)),
-            icon: const Icon(Icons.refresh_rounded),
+            icon: const Icon(Icons.refresh_rounded, size: 21),
           ),
         ],
       ),
@@ -61,62 +61,56 @@ class _DetailBody extends StatelessWidget {
     return SafeArea(
       top: false,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
+        padding: const EdgeInsets.fromLTRB(14, 6, 14, 24),
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFE5F3F0), Color(0xFFF5FAF9)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: const Color(0xFFD8EAE5)),
-            ),
+          _Surface(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
+                  spacing: 12,
+                  runSpacing: 5,
                   children: [
-                    InfoPill(
+                    _StatusDot(
                       label: cancelled ? '已停课' : session.statusLabel,
-                      color: cancelled ? const Color(0xFFAD6A12) : appTeal,
+                      color: cancelled ? const Color(0xFFB7791F) : appTeal,
                     ),
                     if (session.isMoved)
-                      const InfoPill(label: '已调课', color: Color(0xFFAD6A12)),
+                      const _StatusDot(label: '已调课', color: Color(0xFFB7791F)),
                     if (session.teachingWeek != null)
-                      InfoPill(label: '第${session.teachingWeek}周'),
+                      _StatusDot(
+                        label: '第${session.teachingWeek}周',
+                        color: appMuted,
+                      ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Text(
                   session.courseName,
                   style: const TextStyle(
-                    fontSize: 23,
+                    fontSize: 20,
                     height: 1.35,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     color: appInk,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 5),
                 Text(
                   '${monthDayZh(session.date)} ${weekdayZh(session.weekday)} · '
                   '${session.periodsLabel} · ${session.timeRange}',
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 13.5,
                     color: appMuted,
                     height: 1.45,
                   ),
                 ),
                 if (session.statusReason.isNotEmpty) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 7),
                   Text(
                     session.statusReason,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: 12.5,
                       color: Color(0xFF8E5310),
                       height: 1.45,
                     ),
@@ -125,88 +119,101 @@ class _DetailBody extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           if (session.isMine)
             _SessionActions(session: session, api: api)
           else
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F6F5),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Text(
-                '由这节课的授课教师填写备注和教学事项。',
-                style: TextStyle(fontSize: 15, color: appMuted),
-              ),
-            ),
-          const SizedBox(height: 14),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            const _Surface(
+              padding: EdgeInsets.fromLTRB(12, 9, 12, 9),
+              child: Row(
                 children: [
-                  Text('课程信息', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 10),
-                  _InfoRow(
-                    icon: Icons.person_outline,
-                    label: '教师',
-                    value: session.teacherNames.isEmpty
-                        ? '未安排'
-                        : session.teacherNames,
-                  ),
-                  _InfoRow(
-                    icon: Icons.location_on_outlined,
-                    label: '教室',
-                    value: session.classroom.displayName.isEmpty
-                        ? '未安排'
-                        : session.classroom.displayName,
-                  ),
-                  _InfoRow(
-                    icon: Icons.schedule,
-                    label: '时间',
-                    value:
-                        '${monthDayZh(session.date)} '
-                        '${weekdayZh(session.weekday)}\n'
-                        '${session.periodsLabel}  ${session.timeRange}',
-                  ),
-                  _InfoRow(
-                    icon: Icons.menu_book_outlined,
-                    label: '计划学时',
-                    value: _hours(session.plannedHours),
-                  ),
-                  _InfoRow(
-                    icon: Icons.timer_outlined,
-                    label: '实际学时',
-                    value: session.actualHours == null
-                        ? '未完成'
-                        : _hours(session.actualHours),
-                  ),
-                  _InfoRow(
-                    icon: Icons.flag_outlined,
-                    label: '课程目标',
-                    value: session.offeringTargetHours == null
-                        ? '—'
-                        : _hours(session.offeringTargetHours),
-                  ),
-                  _InfoRow(
-                    icon: Icons.people_alt_outlined,
-                    label: '选课人数',
-                    value: session.enrolledCount == null
-                        ? '—'
-                        : '${session.enrolledCount} 人',
-                    last: !hasLeadTeacher,
-                  ),
-                  if (hasLeadTeacher)
-                    _InfoRow(
-                      icon: Icons.star_outline,
-                      label: '负责人',
-                      value: session.leadTeacherName!,
-                      last: true,
+                  Icon(Icons.info_outline, size: 17, color: appMuted),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '由这节课的授课教师填写备注和教学事项。',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.45,
+                        color: appMuted,
+                      ),
                     ),
+                  ),
                 ],
               ),
+            ),
+          const SizedBox(height: 10),
+          _Surface(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '课程信息',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: appInk,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                _InfoRow(
+                  icon: Icons.person_outline,
+                  label: '教师',
+                  value: session.teacherNames.isEmpty
+                      ? '未安排'
+                      : session.teacherNames,
+                ),
+                _InfoRow(
+                  icon: Icons.location_on_outlined,
+                  label: '教室',
+                  value: session.classroom.displayName.isEmpty
+                      ? '未安排'
+                      : session.classroom.displayName,
+                ),
+                _InfoRow(
+                  icon: Icons.schedule,
+                  label: '时间',
+                  value:
+                      '${monthDayZh(session.date)} '
+                      '${weekdayZh(session.weekday)}\n'
+                      '${session.periodsLabel}  ${session.timeRange}',
+                ),
+                _InfoRow(
+                  icon: Icons.menu_book_outlined,
+                  label: '计划学时',
+                  value: _hours(session.plannedHours),
+                ),
+                _InfoRow(
+                  icon: Icons.timer_outlined,
+                  label: '实际学时',
+                  value: session.actualHours == null
+                      ? '未完成'
+                      : _hours(session.actualHours),
+                ),
+                _InfoRow(
+                  icon: Icons.flag_outlined,
+                  label: '课程目标',
+                  value: session.offeringTargetHours == null
+                      ? '—'
+                      : _hours(session.offeringTargetHours),
+                ),
+                _InfoRow(
+                  icon: Icons.people_alt_outlined,
+                  label: '选课人数',
+                  value: session.enrolledCount == null
+                      ? '—'
+                      : '${session.enrolledCount} 人',
+                  last: !hasLeadTeacher,
+                ),
+                if (hasLeadTeacher)
+                  _InfoRow(
+                    icon: Icons.star_outline,
+                    label: '负责人',
+                    value: session.leadTeacherName!,
+                    last: true,
+                  ),
+              ],
             ),
           ),
         ],
@@ -230,101 +237,202 @@ class _SessionActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        FilledButton.icon(
-          key: const Key('openNotesButton'),
-          onPressed: () => context.push(
-            '/sessions/${session.id}/notes',
-            extra: {'title': session.courseName, 'editable': true},
+    final actionText = const TextStyle(
+      fontSize: 13.5,
+      fontWeight: FontWeight.w600,
+    );
+    return _Surface(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(2, 0, 2, 7),
+            child: Text(
+              '常用操作',
+              style: TextStyle(fontSize: 12.5, color: appMuted),
+            ),
           ),
-          icon: const Icon(Icons.edit_note_outlined),
-          label: const Text('教学备注'),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                key: const Key('openTeachingPlanButton'),
-                onPressed: session.offeringId.isEmpty
-                    ? null
-                    : () => Navigator.of(context).push<void>(
-                        MaterialPageRoute(
-                          builder: (context) => TeachingPlanPage(
-                            api: api,
-                            offeringId: session.offeringId,
-                          ),
-                        ),
-                      ),
-                icon: const Icon(Icons.checklist_rtl),
-                label: const Text('教学计划'),
+          FilledButton.icon(
+            key: const Key('openPreparationButton'),
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (context) => PreparationPage(
+                  api: PreparationRepository(api),
+                  sessionId: session.id,
+                ),
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                key: const Key('openCompletionButton'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        CompletionPage(api: api, sessionId: session.id),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(42),
+              textStyle: actionText,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(9),
+              ),
+            ),
+            icon: const Icon(Icons.auto_awesome, size: 18),
+            label: const Text('AI备课'),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _OutlineAction(
+                  key: const Key('openNotesButton'),
+                  icon: Icons.edit_note_outlined,
+                  label: '教学备注',
+                  onPressed: () => context.push(
+                    '/sessions/${session.id}/notes',
+                    extra: {'title': session.courseName, 'editable': true},
                   ),
                 ),
-                icon: const Icon(Icons.timelapse),
-                label: const Text('登记学时'),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                key: const Key('openHandoffButton'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (context) => HandoffComposePage(
-                      api: api,
-                      sourceSessionId: session.id,
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OutlineAction(
+                  key: const Key('openTeachingPlanButton'),
+                  icon: Icons.checklist_rtl,
+                  label: '教学计划',
+                  onPressed: session.offeringId.isEmpty
+                      ? null
+                      : () => Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (context) => TeachingPlanPage(
+                              api: api,
+                              offeringId: session.offeringId,
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _OutlineAction(
+                  key: const Key('openCompletionButton'),
+                  icon: Icons.timelapse,
+                  label: '登记学时',
+                  onPressed: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          CompletionPage(api: api, sessionId: session.id),
                     ),
                   ),
                 ),
-                icon: const Icon(Icons.swap_horiz_rounded),
-                label: const Text('进度交接'),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                key: const Key('openRescheduleButton'),
-                onPressed: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        ReschedulePage(api: api, sessionId: session.id),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _OutlineAction(
+                  key: const Key('openHandoffButton'),
+                  icon: Icons.swap_horiz_rounded,
+                  label: '进度交接',
+                  onPressed: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => HandoffComposePage(
+                        api: api,
+                        sourceSessionId: session.id,
+                      ),
+                    ),
                   ),
                 ),
-                icon: const Icon(Icons.published_with_changes),
-                label: const Text('查询调课'),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        OutlinedButton.icon(
-          key: const Key('openPreparationButton'),
-          onPressed: () => Navigator.of(context).push<void>(
-            MaterialPageRoute(
-              builder: (context) => PreparationPage(
-                api: PreparationRepository(api),
-                sessionId: session.id,
+            ],
+          ),
+          const SizedBox(height: 8),
+          _OutlineAction(
+            key: const Key('openRescheduleButton'),
+            icon: Icons.published_with_changes,
+            label: '查询调课',
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (context) =>
+                    ReschedulePage(api: api, sessionId: session.id),
               ),
             ),
           ),
-          icon: const Icon(Icons.auto_awesome),
-          label: const Text('AI备课'),
+        ],
+      ),
+    );
+  }
+}
+
+class _OutlineAction extends StatelessWidget {
+  const _OutlineAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(42),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        foregroundColor: appInk,
+        side: const BorderSide(color: appLine),
+        textStyle: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+      ),
+      icon: Icon(icon, size: 17, color: appTeal),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
+class _Surface extends StatelessWidget {
+  const _Surface({required this.child, required this.padding});
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: appLine),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _StatusDot extends StatelessWidget {
+  const _StatusDot({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 5,
+          height: 5,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
         ),
       ],
     );
@@ -346,40 +454,41 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: last ? 10 : 0),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, size: 20, color: appTeal),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 72,
-                  child: Text(
-                    label,
-                    style: const TextStyle(fontSize: 15, color: appMuted),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 17, color: appMuted),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 64,
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: appMuted,
                   ),
                 ),
-                Expanded(
-                  child: SelectableText(
-                    value.isEmpty ? '—' : value,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      height: 1.45,
-                      color: appInk,
-                    ),
+              ),
+              Expanded(
+                child: SelectableText(
+                  value.isEmpty ? '—' : value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.45,
+                    color: appInk,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          if (!last) const Divider(height: 1),
-        ],
-      ),
+        ),
+        if (!last) const Divider(height: 1),
+      ],
     );
   }
 }

@@ -45,11 +45,11 @@ class FeaturesPage extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 12),
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
               sliver: SliverToBoxAdapter(child: _QuickActions(api: api)),
             ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               sliver: SliverToBoxAdapter(
                 child: Row(
                   children: [
@@ -58,7 +58,7 @@ class FeaturesPage extends ConsumerWidget {
                     if (items.isNotEmpty)
                       Text(
                         '${items.length} 门',
-                        style: const TextStyle(fontSize: 14, color: appMuted),
+                        style: const TextStyle(fontSize: 12, color: appMuted),
                       ),
                   ],
                 ),
@@ -73,7 +73,7 @@ class FeaturesPage extends ConsumerWidget {
               )
             else if (offerings.hasError && items.isEmpty)
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                 sliver: SliverToBoxAdapter(
                   child: _LoadError(
                     message: '${offerings.error}',
@@ -91,13 +91,13 @@ class FeaturesPage extends ConsumerWidget {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                 sliver: SliverList.builder(
                   itemCount: items.length,
                   itemBuilder: (context, index) {
                     final offering = items[index];
                     return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.only(bottom: 8),
                       child: _OfferingCard(
                         key: ValueKey('offering-${offering.id}'),
                         offering: offering,
@@ -128,86 +128,87 @@ class _QuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                '常用工具',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: appInk,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 2),
+          child: Text(
+            '常用工具',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: appInk,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _QuickTile(
+                  key: const Key('freeRoomsEntry'),
+                  icon: Icons.meeting_room_outlined,
+                  label: '空教室查询',
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => FreeRoomsPage(api: api),
+                    ),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickTile(
-                    key: const Key('freeRoomsEntry'),
-                    icon: Icons.event_available_outlined,
-                    label: '空教室查询',
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (context) => FreeRoomsPage(api: api),
-                      ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _QuickTile(
+                  key: const Key('handoffEntry'),
+                  icon: Icons.swap_horiz_rounded,
+                  label: '进度交接',
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => HandoffListPage(api: api),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickTile(
-                    key: const Key('handoffEntry'),
-                    icon: Icons.swap_horiz_rounded,
-                    label: '进度交接',
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (context) => HandoffListPage(api: api),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _QuickTile(
-                    key: const Key('rescheduleRequestsEntry'),
-                    icon: Icons.published_with_changes,
-                    label: '调课记录',
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (context) => RescheduleRequestsPage(api: api),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _QuickTile(
-                    key: const Key('classroomInquiryEntry'),
-                    icon: Icons.room_preferences_outlined,
-                    label: '教室与失物',
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (context) => ClassroomInquiryPage(api: api),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _QuickTile(
+                  key: const Key('rescheduleRequestsEntry'),
+                  icon: Icons.published_with_changes,
+                  label: '调课记录',
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => RescheduleRequestsPage(api: api),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _QuickTile(
+                  key: const Key('classroomInquiryEntry'),
+                  icon: Icons.inventory_2_outlined,
+                  label: '教室与失物',
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (context) => ClassroomInquiryPage(api: api),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -226,29 +227,51 @@ class _QuickTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFEAF5F2),
-      borderRadius: BorderRadius.circular(15),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(15),
-        onTap: onTap,
-        child: SizedBox(
-          height: 96,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: appLine),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x081B2B45),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Row(
               children: [
-                Icon(icon, size: 26, color: appTeal),
-                const Spacer(),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w600,
-                    color: appInk,
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: appBlueSoft,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(icon, size: 18, color: appTeal),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.3,
+                      fontWeight: FontWeight.w600,
+                      color: appInk,
+                    ),
                   ),
                 ),
               ],
@@ -275,9 +298,21 @@ class _OfferingCard extends StatelessWidget {
     final roles = offering.teachers
         .map((teacher) => '${teacher.name}（${_roleLabel(teacher.role)}）')
         .join('、');
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: appLine),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x081B2B45),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.fromLTRB(14, 13, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -287,21 +322,24 @@ class _OfferingCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     offering.courseName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 18,
-                      height: 1.35,
+                      fontSize: 16,
+                      height: 1.3,
                       fontWeight: FontWeight.w700,
+                      color: appInk,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                InfoPill(
+                _OfferingBadge(
                   label: offering.isAssigned ? '我任课' : '同班教师',
                   color: offering.isAssigned ? appTeal : appMuted,
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 7),
             _OfferingLine(
               icon: Icons.groups_outlined,
               text: roles.isEmpty ? '未安排教师' : roles,
@@ -313,17 +351,44 @@ class _OfferingCard extends StatelessWidget {
                   '${offering.leadTeacherName.isEmpty ? '' : ' · 负责人 ${offering.leadTeacherName}'}',
               last: true,
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
                 key: ValueKey('offering-plan-${offering.id}'),
                 onPressed: onPlan,
-                icon: const Icon(Icons.checklist_rtl),
+                icon: const Icon(Icons.checklist_rtl, size: 17),
                 label: const Text('教学计划 / 进度'),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OfferingBadge extends StatelessWidget {
+  const _OfferingBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          height: 1.2,
+          fontWeight: FontWeight.w600,
+          color: color,
         ),
       ),
     );
@@ -350,21 +415,23 @@ class _OfferingLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 8),
+      padding: EdgeInsets.only(bottom: last ? 0 : 5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(icon, size: 18, color: appMuted),
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 15, color: appMuted),
           ),
-          const SizedBox(width: 7),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
               text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 14.5,
-                height: 1.45,
+                fontSize: 12.5,
+                height: 1.4,
                 color: last ? appMuted : appInk,
               ),
             ),
@@ -393,7 +460,7 @@ class _LoadError extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: const TextStyle(fontSize: 15, color: appMuted),
+                style: const TextStyle(fontSize: 13, color: appMuted),
               ),
             ),
             TextButton(onPressed: onRetry, child: const Text('重试')),

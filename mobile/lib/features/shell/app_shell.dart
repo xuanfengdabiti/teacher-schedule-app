@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/theme.dart';
+
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.navigationShell});
 
@@ -12,7 +14,8 @@ class AppShell extends StatelessWidget {
       body: navigationShell,
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: Color(0xFFE2ECE9))),
+          color: Colors.white,
+          border: Border(top: BorderSide(color: appLine)),
         ),
         child: NavigationBar(
           selectedIndex: navigationShell.currentIndex,
@@ -22,25 +25,22 @@ class AppShell extends StatelessWidget {
               initialLocation: index == navigationShell.currentIndex,
             );
           },
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.today_outlined),
-              selectedIcon: Icon(Icons.today),
               label: '今天',
             ),
             NavigationDestination(
               icon: Icon(Icons.calendar_month_outlined),
-              selectedIcon: Icon(Icons.calendar_month),
               label: '课表',
             ),
             NavigationDestination(
               icon: Icon(Icons.grid_view_outlined),
-              selectedIcon: Icon(Icons.grid_view_rounded),
               label: '功能',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
               label: '我的',
             ),
           ],
