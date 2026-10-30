@@ -3,9 +3,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/router.dart';
+import 'app/reading_text_scaler.dart';
 import 'app/theme.dart';
 import 'features/profile/font_size_controller.dart';
 import 'features/reminders/reminder_coordinator.dart';
+
+const _readingScale = 1.15;
 
 /// Android Material 3 stretches edge content by default, which warps text and
 /// cards at the end of a list. Keep normal scrolling and pull-to-refresh but
@@ -33,26 +36,19 @@ class TeacherScheduleApp extends ConsumerWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       builder: (context, child) {
-        // Following the system keeps the platform scaler untouched (including
-        // non-linear scaling). Large choices add exactly one extra factor.
-        Widget content;
-        if (fontChoice == 'system') {
-          content = child ?? const SizedBox.shrink();
-        } else {
-          final media = MediaQuery.of(context);
-          final scale = textScaleForFontSize(fontChoice);
-          content = MediaQuery(
-            data: media.copyWith(
-              textScaler: TextScaler.linear(
-                media.textScaler.scale(1.0) * scale,
-              ),
-            ),
-            child: child ?? const SizedBox.shrink(),
-          );
-        }
-        // One coordinator instance wraps both font-size branches so reminder
-        // setup and notification taps survive any font-size change.
-        return ReminderCoordinator(child: content);
+        // One reading baseline for every page, combined with the untouched
+        // platform scaler and the account's optional preference.
+        final media = MediaQuery.of(context);
+        final scaler = ReadingTextScaler(
+          upstream: media.textScaler,
+          factor: _readingScale * textScaleForFontSize(fontChoice),
+        );
+        // Keep one coordinator instance across preference changes so reminder
+        // listeners and notification routing stay attached.
+        return MediaQuery(
+          data: media.copyWith(textScaler: scaler),
+          child: ReminderCoordinator(child: child ?? const SizedBox.shrink()),
+        );
       },
       routerConfig: ref.watch(routerProvider),
     );

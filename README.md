@@ -4,7 +4,7 @@
 
 ## 当前：Android 演示版
 
-蓝白界面[预览版 1.2.0](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.1)已另行提供，支持整周课表双指缩放；[实际截图与验收](docs/blue-ui-preview.md)。原版 1.1.0 继续保留，预览版不替换其发布资产。
+蓝白界面[预览版 1.2.0（字体加大版）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.2)已另行提供，默认字号提高 15%，支持整周课表双指缩放；[实际截图与验收](docs/blue-ui-preview.md)。原版 1.1.0 继续保留，预览版不替换其发布资产。
 
 Flutter 四核心（课表与调课、备注与交接、计划与学时、教室与失物）与 Django 后端已可本地运行，当前含 37 门课、13 位教师、30 间教室、878 名虚构学生和 1440 个课次。校区为团河校区、木犀校区，楼宇为历警楼、慧警楼、高警察楼，房号为三位数。李、张、王三位老师周一到周五均有课程，整周视图可直接演示。
 

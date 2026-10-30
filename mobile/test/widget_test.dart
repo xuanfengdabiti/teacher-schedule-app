@@ -392,6 +392,40 @@ void main() {
     expect(authHeader, 'Bearer widget-access');
   });
 
+  testWidgets('320 宽和大字号下日签七天完整且不溢出', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    final app = await _pumpApp(tester, signedIn: true);
+    await _pumpUntil(
+      tester,
+      find.byKey(const ValueKey('session-session-1')),
+      reason: '有令牌启动未恢复到课表',
+    );
+
+    await tester.tap(find.text('课表'));
+    await _pumpUntil(
+      tester,
+      find.byKey(const Key('weekViewToggle')),
+      reason: '未进入周课表',
+    );
+
+    final monday = startOfWeek(app.server.today);
+    for (var index = 0; index < 7; index++) {
+      expect(
+        find.byKey(
+          ValueKey('dayTab-${isoDate(monday.add(Duration(days: index)))}'),
+        ),
+        findsOneWidget,
+        reason: '日签应完整显示七天',
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('已有令牌启动时恢复 me 并直接进入课表', (tester) async {
     final app = await _pumpApp(tester, signedIn: true);
     await _pumpUntil(

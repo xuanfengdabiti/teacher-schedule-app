@@ -4,7 +4,7 @@
 
 参考图：[用户提供的初始界面](screenshots/blue-ui-reference.png)。图中的文字和时段用于视觉参考，实际授课时间、两校区地址、四核心功能和当前中文名称继续沿用已有业务。
 
-安装：[蓝白预览版 APK](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.1/teacher-schedule-v1.2.0-preview.1-android.apk) · [预览发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.1)。沿用原来的演示账号、联网服务器和操作流程，原版仍为正式 Latest。
+安装：[蓝白预览版 APK（字体加大版）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.2/teacher-schedule-v1.2.0-preview.2-android.apk) · [预览发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.2)。沿用原来的演示账号、联网服务器和操作流程，原版仍为正式 Latest。
 
 ## 视觉与操作
 
@@ -43,6 +43,10 @@ flutter build apk --release --build-name=1.2.0 --build-number=3 --dart-define=AP
 本机实际采用[手机联网演示](phone-demo.md)记录的 Gradle 方式禁用 Kotlin 跨盘增量缓存，版本由本地构建配置指定为 1.2.0 / 3；原版 APK 和服务器下载文件不覆盖。
 
 ## 实际运行截图
+
+2026-10-30 字号调整：用户反馈字体偏小后，统一将默认阅读字号提高 **15%**；课程名约 18.4、教师/教室约 14.4、备注约 13.8，蓝白样式保留。继续复用 Flutter `MediaQuery` / `TextScaler`，仅增加薄的组合缩放器，保留系统非线性缩放以及“跟随系统／大／更大”偏好，不写入或覆盖账号偏好。日签改为自适应高度，避免大字又被固定高度压小。
+
+字号调整版全量 **130 项测试通过**、静态检查通过，113 个 Dart 文件格式检查无变化；Android **1.2.0（4）** 构建并在可见模拟器覆盖安装，首页三节课、时间与短备注正常显示。包体 **46,160,295 字节**，SHA-256：`3EE1A3261DDAFFD55C97B14E03782F5F2F10E2EA5BD524B89069D8311DBE59A7`。构建前后 Dart 源码摘要一致。下表保留首轮截图作对照，[查看字体加大后的首页](screenshots/ui-blue-font-home.png)；原版与 preview.1 安装包均保留。
 
 | 首页 | 课程长按菜单 |
 | --- | --- |

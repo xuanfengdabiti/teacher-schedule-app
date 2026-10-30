@@ -314,6 +314,18 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pump(const Duration(milliseconds: 300));
 }
 
+TextScaler _appTextScaler(WidgetTester tester) {
+  final scaler = tester.widget<MediaQuery>(
+    find
+        .descendant(
+          of: find.byType(MaterialApp),
+          matching: find.byType(MediaQuery),
+        )
+        .first,
+  );
+  return scaler.data.textScaler;
+}
+
 /// Signs in through the real login form.
 Future<void> _signInAs(
   WidgetTester tester,
@@ -329,6 +341,21 @@ Future<void> _signInAs(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('默认阅读基准比系统字号大 15%', (tester) async {
+    final app = await _pumpProfileApp(tester);
+    await _pumpUntil(tester, find.byType(NavigationBar), reason: '未进入主界面');
+
+    expect(app.container.read(fontSizeControllerProvider), 'system');
+    expect(
+      _appTextScaler(tester).scale(10),
+      closeTo(11.5, 0.01),
+      reason: '默认也应叠加 1.15 阅读基准',
+    );
+
+    // Let the initial calendar/week reads finish before disposing the tree.
+    await tester.pump(const Duration(seconds: 1));
+  });
 
   testWidgets('编辑资料保存 PATCH、失败保留输入并回显新称呼', (tester) async {
     final app = await _pumpProfileApp(tester);
@@ -443,6 +470,11 @@ void main() {
     expect(server.wang.fontSize, 'large');
     expect(app.container.read(fontSizeControllerProvider), 'large');
     expect(app.prefs.getString(_fontKey(server.baseUrl, 'user-2')), 'large');
+    expect(
+      _appTextScaler(tester).scale(10),
+      closeTo(13.225, 0.01),
+      reason: '大字号只在 1.15 阅读基准上叠加一次',
+    );
 
     // Really switch accounts. 李老师 has extra_large stored on the server.
     await tester.runAsync(
@@ -452,17 +484,9 @@ void main() {
     await _signInAs(tester, server, server.li);
 
     expect(app.container.read(fontSizeControllerProvider), 'extra_large');
-    final scaler = tester.widget<MediaQuery>(
-      find
-          .descendant(
-            of: find.byType(MaterialApp),
-            matching: find.byType(MediaQuery),
-          )
-          .first,
-    );
     expect(
-      scaler.data.textScaler.scale(10),
-      closeTo(13, 0.01),
+      _appTextScaler(tester).scale(10),
+      closeTo(14.95, 0.01),
       reason: '新账号更大字号立即生效',
     );
     expect(

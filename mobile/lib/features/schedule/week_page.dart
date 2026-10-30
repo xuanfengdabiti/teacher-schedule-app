@@ -196,9 +196,9 @@ class _WeekPageState extends ConsumerState<WeekPage> {
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  height: 64,
+                child: IntrinsicHeight(
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       for (var index = 0; index < 7; index++) ...[
                         if (index > 0) const SizedBox(width: 4),
@@ -491,7 +491,8 @@ class _DayChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
@@ -500,39 +501,32 @@ class _DayChip extends StatelessWidget {
               ),
             ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                SizedBox(
-                  height: 13,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      weekdayZh(date.weekday).replaceFirst('周', ''),
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: 1,
-                        color: selected
-                            ? Colors.white70
-                            : isToday
-                            ? appTeal
-                            : appMuted,
-                      ),
-                    ),
+                Text(
+                  weekdayZh(date.weekday).replaceFirst('周', ''),
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.15,
+                    color: selected
+                        ? Colors.white70
+                        : isToday
+                        ? appTeal
+                        : appMuted,
                   ),
                 ),
-                const SizedBox(height: 2),
-                SizedBox(
-                  height: 20,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '${date.day}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        height: 1,
-                        fontWeight: FontWeight.w700,
-                        color: foreground,
-                      ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '${date.day}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      height: 1.1,
+                      fontWeight: FontWeight.w700,
+                      color: foreground,
                     ),
                   ),
                 ),
