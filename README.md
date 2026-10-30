@@ -4,14 +4,14 @@
 
 ## 当前：Android 演示版
 
-蓝白界面[预览版 1.2.0](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.3)已另行提供，默认字号提高 15%，单击课程卡打开操作菜单，整周课表用双指缩放；[实际截图与验收](docs/blue-ui-preview.md)。原版 1.1.0 继续保留，预览版不替换其发布资产。
+蓝白界面[预览版 1.2.0](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)已迁移到北京服务器，覆盖安装会自动更新旧香港地址并保留登录与导入记录。默认字号提高 15%，单击课程卡打开操作菜单，整周课表用双指缩放；[界面验收](docs/blue-ui-preview.md) · [迁移核对](docs/beijing-migration.md)。原版 1.1.0 继续保留，预览版不替换其发布资产。
 
 Flutter 四核心（课表与调课、备注与交接、计划与学时、教室与失物）与 Django 后端已可本地运行，当前含 37 门课、13 位教师、30 间教室、878 名虚构学生和 1440 个课次。校区为团河校区、木犀校区，楼宇为历警楼、慧警楼、高警察楼，房号为三位数。李、张、王三位老师周一到周五均有课程，整周视图可直接演示。
 
 - 一键启动与账号说明：[docs/local-demo.md](docs/local-demo.md)（`pwsh scripts/start-demo.ps1`）
 - 实际验收与截图：[docs/local-demo-acceptance.md](docs/local-demo-acceptance.md)
-- 手机联网环境、安装与基础功能补齐：[docs/phone-demo.md](docs/phone-demo.md)。用户指定的香港服务器通过 IP 提供现有后端，手机不依赖电脑局域网。
-- [GitHub Release 安装包下载（1.1.0）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.1.0/teacher-schedule-v1.1.0-android.apk)（[发布说明](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)、[服务器备用下载](http://38.76.172.48:18001/teacher-schedule.apk)），已预设演示服务器地址；本轮 117 项 Flutter 测试通过。
+- 手机联网环境、安装与基础功能补齐：[docs/phone-demo.md](docs/phone-demo.md)。当前北京地址为 `http://101.201.48.132/api/v1/`，手机不依赖电脑局域网；香港旧地址保留转发。
+- [当前 APK 下载（蓝白预览版）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.4/teacher-schedule-v1.2.0-preview.4-android.apk)（[发布说明](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)、[北京备用下载](http://101.201.48.132/teacher-schedule.apk)），Android 1.2.0（6），140 项 Flutter 测试通过。[1.1.0 原版](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)仍可下载。
 - APK：`mobile/build/app/outputs/flutter-apk/app-release.apk`（约 46 MB，Android ARM64 / x64）
 - 仅用于演示，没有远程推送、商店发布或 iOS 实机验收；学校接口仍未对接。
 - 完整方案档案：[实现方案](docs/implementation-plan.md)、[领域规则](docs/domain-design.md)、[交付清单](docs/delivery-backlog.md)。
@@ -46,7 +46,8 @@ Flutter 四核心（课表与调课、备注与交接、计划与学时、教室
 | [界面措辞约定](docs/ui-wording.md) | 老师可见的标题、按钮、消息与提示用词，区分草稿、共享和交接 |
 | [首次登录导入演示](docs/demo-login-import.md) | 按教师身份读取示例课表的过渡画面、完成记录与真实接口边界 |
 | [个人资料、密码与字号](docs/demo-personal-settings.md) | 编辑联系方式、修改密码和按账号保存字号的操作说明 |
-| [手机联网演示](docs/phone-demo.md) | 香港服务器 IP、Android 安装、注册找回、头像与本地上课提醒及实际验收 |
+| [手机联网演示](docs/phone-demo.md) | 北京服务器 IP、Android 安装、注册找回、头像与本地上课提醒及实际验收 |
+| [北京完整迁移](docs/beijing-migration.md) | 数据库与附件核对、旧地址转发、新包升级及公网验收 |
 | [AI 课前备课助手](docs/ai-lesson-preparation.md) | 真实模型接入、备课生成与保存、接口及本机配置 |
 | [开发代理指引](AGENTS.md) | 后续自动化开发必须遵循的仓库约束 |
 | [第三方复用记录](THIRD_PARTY.md) | 候选与实际引入的区分、归属与许可证记录要求 |

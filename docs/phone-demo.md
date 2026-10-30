@@ -4,20 +4,22 @@
 
 ## 运行方式
 
-- 后端位于用户指定的香港服务器，目录 `/srv/teacher-schedule`，独立 Compose 项目 `teacher-schedule-phone`。
-- 服务地址为 `http://38.76.172.48:18000/api/v1/`，直接使用 IP，不配置域名。
-- 数据库和媒体使用独立持久卷；原服务器已有网站、容器和端口不改。
-- APK 用 `API_BASE_URL` 构建配置指定默认服务地址，仍保留手动连接设置。已有安装保存过其他服务地址时，以其手动设置为准。
+- 后端已按用户要求从香港完整迁往北京服务器，目录 `/srv/teacher-schedule`，独立 Compose 项目 `teacher-schedule-phone`；[迁移范围及核对](beijing-migration.md)。
+- 当前服务地址为 `http://101.201.48.132/api/v1/`，直接使用 IP，不配置域名，公网入口为 TCP 80。
+- 数据库和媒体使用独立持久卷，香港原应用与数据库停止，保留备份及原卷；旧 API 地址转发到北京，原服务器其他应用保留。
+- APK 用 `API_BASE_URL` 构建配置指定默认服务地址，仍保留手动连接设置。当前北京新包会自动更新已保存的旧香港地址并复制字号/导入记录，保留登录和草稿；其他自定义地址保持手动设置。
 
 手机需要能够访问服务器。普通课表、备注、学时、交接和失物数据保存在服务器；模型生成由后端调用已配置服务，手机端不保存模型 API 密钥。
 
-2026-10-30 内置 AI 备课已切换到 Yue 的 `deepseek-v4.1-flash`。服务器配置已生效，本机私有配置同步，现有 1.1.0 安装包直接使用；公网真实生成用时 7.7 秒、四段共 405 字，生成前后草稿不变。配置与验收见[AI 备课说明](ai-lesson-preparation.md)。
+2026-10-30 内置 AI 备课已切换到 Yue 的 `deepseek-v4.1-flash`，并随应用迁到北京。北京公网真实生成用时 7.4 秒、四段共 511 字，生成前后草稿不变；香港的 7.7 秒 / 405 字为此前验收。配置与验收见[AI 备课说明](ai-lesson-preparation.md)。
 
 ## 手机安装
 
-安卓手机下载 [GitHub Release 的教师课程表 1.1.0 安装包](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.1.0/teacher-schedule-v1.1.0-android.apk) 后安装；[发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)同时提供安装说明和 `SHA256SUMS.txt`，公开下载无需登录。Release 沿用已验收的同一 APK，版本 1.1.0（2）、46,029,223 字节，SHA-256 见下文，没有重新构建。
+安卓手机下载 [GitHub Release 的蓝白预览版安装包](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.4/teacher-schedule-v1.2.0-preview.4-android.apk) 后安装；[发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)提供安装说明和 `SHA256SUMS.txt`，公开下载无需登录。当前版本为 **1.2.0（6）**、**46,225,831 字节**，直连北京，可覆盖安装保留原登录、导入与字号记录。原版 [1.1.0](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0) 和此前预览版的发布资产保留。
 
-[服务器备用下载](http://38.76.172.48:18001/teacher-schedule.apk)继续可用。下载端口为独立的 `18001`，由 `teacher-schedule-download.service` 提供静态文件；APK 与服务器文件摘要一致，外网下载 HTTP 200、分段下载 206、长度与文件头校验通过。
+[北京服务器备用下载](http://101.201.48.132/teacher-schedule.apk)使用 80 端口，由 Nginx 提供文件；APK 与本机构建摘要一致，HTTP 200、分段下载 206、长度与文件头校验通过。香港旧下载地址由原 `teacher-schedule-download.service` 返回 302 到北京；旧 API 端口也由该服务转发。
+
+当前 APK SHA-256：`6EA250649E02C17536CEC59A86FCA48B53FD15E16C41DDF0D8AF303F725D6A2F`。
 
 首次安装已预设服务器地址，直接选择演示账号并登录。建议主讲演示使用“其他演示账号”里的教师甲（`t0001@example.invalid`）；李、张、王可用于交接与失物回复。统一密码 `TeacherDemo2026!`。首次进入会展示导入画面，同账号、地址、学期已有完成记录后跳过，也可勾选“演示首次导入”重放。
 
@@ -48,14 +50,14 @@
 
 ```powershell
 cd mobile
-flutter build apk --release --build-name=1.1.0 --build-number=2 --dart-define=API_BASE_URL=http://38.76.172.48:18000/api/v1/
+flutter build apk --release --build-name=1.2.0 --build-number=6 --target-platform=android-arm64,android-x64 --dart-define=API_BASE_URL=http://101.201.48.132/api/v1/
 ```
 
 本机 Windows 曾遇到 Kotlin 跨盘增量缓存错误。Flutter 步骤生成 SDK、版本等本地配置后，以下方式已实际构建成功（本机沿用现有 JDK 21、Android SDK 与临时目录配置）：
 
 ```powershell
 cd android
-$taskDefine = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('API_BASE_URL=http://38.76.172.48:18000/api/v1/'))
+$taskDefine = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('API_BASE_URL=http://101.201.48.132/api/v1/'))
 .\gradlew.bat assembleRelease '-Pkotlin.incremental=false' '-Ptarget-platform=android-arm64,android-x64' "-Pdart-defines=$taskDefine"
 ```
 
@@ -69,9 +71,11 @@ docker compose -p teacher-schedule-phone --env-file infra/deploy/.env -f infra/d
 curl -fsS http://127.0.0.1:18000/api/v1/health/
 ```
 
-本机 Docker 启动异常导致本轮暂时不能导出旧数据库。服务器通过已有种子建立同一套虚构课程、账号和活动数据；电脑上的原数据保留。现有人工操作与 AI 草稿不应被表述为已经完整迁移，后续旧库恢复可再导出比对。
+首次在香港部署时，本机 Docker 异常，未导出旧电脑数据库，因此当时通过种子建立虚构数据，旧电脑数据另行保留。该限制属于 10月29日首次部署；10月30日香港到北京已整体迁移香港现有数据库与附件，包括其人工操作和 AI 草稿，没有重新造数据。两次迁移范围须区分。
 
 ## 实际验收进度
+
+2026-10-30 北京迁移：62 张表、8,492 条记录、19 个序列和 12 个媒体文件内容核对一致；原登录材料、四账号主要功能读取及真实 AI 生成通过。Flutter **140 项测试通过**、静态检查通过、115 个 Dart 文件格式检查无变化。Android **1.2.0（6）** 在模拟器实际覆盖安装，自动连接北京，4 条字号/导入记录迁移正确，教师甲直接进入已有课表，短备注与课程操作菜单正常；北京访问日志确认收到手机 App 请求。详情、摘要与截图见[北京迁移](beijing-migration.md)。下面保留首次香港部署的历史记录。
 
 2026-10-29：服务器已启动 API 与 PostgreSQL，外网访问健康检查返回 `status=ok, database=ok`。虚构数据已初始化：37 门课程、30 间教室、1,440 个课次；教师甲及李、张、王均已通过外网登录和本人周课表、开课、教室、偏好读取验收。注册、验证、请求重置、实际链接确认重置、新密码登录通过后端测试，邮件由测试捕获而非真实送达。头像通过公网实际上传、鉴权读取、资料刷新、删除验收，结束后恢复教师甲原无头像状态。保留 2 份历史 AI 备课；公网真实生成接口另一次调用成功，用时 8.6 秒，四段共 440 字，未保存或修改课程数据。
 

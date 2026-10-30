@@ -4,7 +4,7 @@
 
 参考图：[用户提供的初始界面](screenshots/blue-ui-reference.png)。图中的文字和时段用于视觉参考，实际授课时间、两校区地址、四核心功能和当前中文名称继续沿用已有业务。
 
-安装：[蓝白预览版 APK](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.3/teacher-schedule-v1.2.0-preview.3-android.apk) · [预览发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.3)。沿用原来的演示账号、联网服务器和操作流程，原版仍为正式 Latest。
+安装：[蓝白预览版 APK](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.4/teacher-schedule-v1.2.0-preview.4-android.apk) · [预览发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)。当前 preview.4 为 Android 1.2.0（6），直连北京服务器，覆盖安装自动更新旧香港地址并保留登录、字号和首次导入记录；[完整迁移与核对](beijing-migration.md)。下文首轮与 preview.2 / preview.3 记录保留作历史对照，原版仍为正式 Latest。
 
 ## 视觉与操作
 

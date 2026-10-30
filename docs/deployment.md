@@ -1,6 +1,6 @@
 # 后端部署说明
 
-> 2026-10-29 新增用户指定的香港服务器手机演示环境：`http://38.76.172.48:18000/api/v1/`，目录 `/srv/teacher-schedule`，Compose 项目 `teacher-schedule-phone`。当前部署与手机安装记录见[手机联网演示](phone-demo.md)。下文 `codex-app-preview`、局域网 IP 和早期未验收描述保留为历史部署说明，不表示当前公网环境仍在该电脑上运行。
+> 2026-10-30 已按用户要求将香港演示环境完整迁到北京：`http://101.201.48.132/api/v1/`，目录 `/srv/teacher-schedule`，Compose 项目 `teacher-schedule-phone`，公网使用 Nginx 的 80 端口。数据库、附件与模型配置已迁移核对，香港旧地址只转发。当前记录见[北京迁移](beijing-migration.md)与[手机联网演示](phone-demo.md)。下文 `codex-app-preview`、局域网 IP 和早期未验收描述保留为历史部署说明，不表示当前公网环境仍在该电脑上运行。
 
 本文记录后端本机部署与 App 联调预览服务。当前实际运行的是专用 Compose 项目 `codex-app-preview`（API + PostgreSQL），用于 Flutter 本机联调；它不是已经验收的生产发布，备份恢复章节也尚未演练。外部真实 SMTP 和推送通道仍待接入。
 
