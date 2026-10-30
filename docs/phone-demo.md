@@ -15,7 +15,9 @@
 
 ## 手机安装
 
-安卓手机下载 [教师课程表 1.1.0 安装包](http://38.76.172.48:18001/teacher-schedule.apk) 后安装。下载端口为独立的 `18001`，由 `teacher-schedule-download.service` 提供静态文件；APK 与服务器文件摘要一致，外网下载 HTTP 200、分段下载 206、长度与文件头校验通过。
+安卓手机下载 [GitHub Release 的教师课程表 1.1.0 安装包](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.1.0/teacher-schedule-v1.1.0-android.apk) 后安装；[发布页](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)同时提供安装说明和 `SHA256SUMS.txt`，公开下载无需登录。Release 沿用已验收的同一 APK，版本 1.1.0（2）、46,029,223 字节，SHA-256 见下文，没有重新构建。
+
+[服务器备用下载](http://38.76.172.48:18001/teacher-schedule.apk)继续可用。下载端口为独立的 `18001`，由 `teacher-schedule-download.service` 提供静态文件；APK 与服务器文件摘要一致，外网下载 HTTP 200、分段下载 206、长度与文件头校验通过。
 
 首次安装已预设服务器地址，直接选择演示账号并登录。建议主讲演示使用“其他演示账号”里的教师甲（`t0001@example.invalid`）；李、张、王可用于交接与失物回复。统一密码 `TeacherDemo2026!`。首次进入会展示导入画面，同账号、地址、学期已有完成记录后跳过，也可勾选“演示首次导入”重放。
 

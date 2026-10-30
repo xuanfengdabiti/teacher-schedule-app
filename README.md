@@ -9,7 +9,7 @@ Flutter 四核心（课表与调课、备注与交接、计划与学时、教室
 - 一键启动与账号说明：[docs/local-demo.md](docs/local-demo.md)（`pwsh scripts/start-demo.ps1`）
 - 实际验收与截图：[docs/local-demo-acceptance.md](docs/local-demo-acceptance.md)
 - 手机联网环境、安装与基础功能补齐：[docs/phone-demo.md](docs/phone-demo.md)。用户指定的香港服务器通过 IP 提供现有后端，手机不依赖电脑局域网。
-- [安卓安装包下载（1.1.0）](http://38.76.172.48:18001/teacher-schedule.apk)，已预设演示服务器地址；本轮 117 项 Flutter 测试通过。
+- [GitHub Release 安装包下载（1.1.0）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.1.0/teacher-schedule-v1.1.0-android.apk)（[发布说明](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)、[服务器备用下载](http://38.76.172.48:18001/teacher-schedule.apk)），已预设演示服务器地址；本轮 117 项 Flutter 测试通过。
 - APK：`mobile/build/app/outputs/flutter-apk/app-release.apk`（约 46 MB，Android ARM64 / x64）
 - 仅用于演示，没有远程推送、商店发布或 iOS 实机验收；学校接口仍未对接。
 - 完整方案档案：[实现方案](docs/implementation-plan.md)、[领域规则](docs/domain-design.md)、[交付清单](docs/delivery-backlog.md)。
