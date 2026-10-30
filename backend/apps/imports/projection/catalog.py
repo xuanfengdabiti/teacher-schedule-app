@@ -25,6 +25,7 @@ from apps.imports.projection.base import (
     ERROR,
     AssignmentChange,
     BuildContext,
+    DeferredAssignmentCheck,
     FieldDifference,
     diff_fields,
     external_id_for_teaching_class,
@@ -281,18 +282,18 @@ def _plan_assignment_changes(
             continue
         teacher = assignments[0].teacher
         if _has_future_scheduled_session(offering, teacher_id, school_date=school_date, term=term):
-            ctx.add_issue(
-                issue_for(
-                    row,
-                    "teacher_codes",
-                    "CHANGE_NOT_SUPPORTED_YET",
-                    (
-                        f"教师 {teacher.teacher_no} 在该课程开设中仍有未来 scheduled 课次，"
-                        "移除任课会改变课表，B12b 不自动处理；请先在 B12c/正式调课流程中处理课次。"
-                    ),
+            # The batch may also change the rule teachers and reassign every
+            # one of these sessions.  Keep the planned end and let the
+            # reconciliation stage reject the batch only if a future scheduled
+            # target would still include this teacher.
+            ctx.deferred_assignment_checks.append(
+                DeferredAssignmentCheck(
+                    teacher_id=teacher_id,
+                    teacher_no=teacher.teacher_no,
+                    offering_id=offering.pk,
+                    row=row,
                 )
             )
-            continue
         for assignment in assignments:
             if assignment.effective_from >= school_date:
                 # A future assignment has no history yet and cannot satisfy the

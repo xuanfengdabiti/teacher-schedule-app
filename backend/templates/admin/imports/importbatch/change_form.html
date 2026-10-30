@@ -116,6 +116,128 @@
         <p>本次预览没有任课范围变化。</p>
       {% endif %}
 
+      <h2 style="margin-top:20px">课次重排结果</h2>
+      {% if original.change_summary.sessions_summary %}
+        <table style="width:100%; max-width: 900px">
+          <thead>
+            <tr>
+              <th>新增</th><th>不变</th><th>自动更新</th><th>取消</th><th>恢复</th>
+              <th>人工决定</th><th>其中冲突</th><th>已完成锁定</th>
+              <th>过去保持</th><th>已完成保持</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{ original.change_summary.sessions_summary.new }}</td>
+              <td>{{ original.change_summary.sessions_summary.unchanged }}</td>
+              <td>{{ original.change_summary.sessions_summary.auto_updated }}</td>
+              <td>{{ original.change_summary.sessions_summary.auto_cancelled }}</td>
+              <td>{{ original.change_summary.sessions_summary.auto_restored }}</td>
+              <td>{{ original.change_summary.sessions_summary.manual }}</td>
+              <td>{{ original.change_summary.sessions_summary.conflict }}</td>
+              <td>{{ original.change_summary.sessions_summary.completed_locked }}</td>
+              <td>{{ original.change_summary.sessions_summary.kept_past }}</td>
+              <td>{{ original.change_summary.sessions_summary.kept_completed }}</td>
+            </tr>
+          </tbody>
+        </table>
+      {% else %}
+        <p>本次预览没有课次变化。</p>
+      {% endif %}
+
+      {% if original.change_summary.sessions %}
+        <div style="overflow-x:auto; margin-top:12px">
+          <table style="width:100%; min-width: 1100px">
+            <thead>
+              <tr>
+                <th>外部课次</th><th>动作</th><th>类型</th><th>现状</th><th>导入目标</th><th>原因</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for change in original.change_summary.sessions %}
+                <tr>
+                  <td><code>{{ change.external_session_id|default:change.session_id }}</code></td>
+                  <td>{{ change.action }}</td>
+                  <td>{{ change.kind|default:"—" }}</td>
+                  <td>
+                    {% if change.before %}
+                      {{ change.before.date }} 第 {{ change.before.start_period }}–{{ change.before.end_period }} 节，
+                      {{ change.before.classroom_code }}，{{ change.before.teacher_codes|join:"|" }}，
+                      {{ change.before.status_label }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if change.after %}
+                      {{ change.after.date }} 第 {{ change.after.start_period }}–{{ change.after.end_period }} 节，
+                      {{ change.after.classroom_code }}，{{ change.after.teacher_codes|join:"|" }}，
+                      {{ change.after.status_label }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>{{ change.reason|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      <h2 style="margin-top:20px">人工决定项</h2>
+      {% if decision_items %}
+        <p>
+          以下课次已有教学记录、正式调课/申请/完成量，或导入目标存在已知冲突；系统默认不自动改动。
+          逐条选择，或点击“全部保留现状”。选择“采用导入结果”时必须填写依据说明。
+        </p>
+        {% if undecided_count %}
+          <p class="errornote">仍有 {{ undecided_count }} 条决定项未选择，存在未决定项时不能提交。</p>
+        {% endif %}
+        <form method="post" action="{% url 'admin:imports_importbatch_decisions' original.pk %}">
+          {% csrf_token %}
+          <div style="overflow-x:auto">
+            <table style="width:100%; min-width: 1200px">
+              <thead>
+                <tr>
+                  <th>课次</th><th>类型与原因</th><th>现状</th><th>导入目标</th><th>选择</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in decision_items %}
+                  <tr>
+                    <td><code>{{ item.session_id }}</code></td>
+                    <td>
+                      <strong>{{ item.get_kind_display }}</strong><br>
+                      {{ item.reason }}
+                    </td>
+                    <td>{{ item.current_display }}</td>
+                    <td>{{ item.proposed_display }}</td>
+                    <td>
+                      <select name="choice_{{ item.pk }}">
+                        <option value="">未决定</option>
+                        {% for value, label in decision_choices %}
+                          {% if value in item.options %}
+                            <option value="{{ value }}" {% if item.choice == value %}selected{% endif %}>{{ label }}</option>
+                          {% endif %}
+                        {% endfor %}
+                      </select>
+                      <textarea name="note_{{ item.pk }}" rows="2" style="width:100%"
+                                placeholder="采用导入结果时必须填写依据说明">{{ item.note }}</textarea>
+                      {% if item.decided_by %}
+                        <small>已由 {{ item.decided_by }} 于 {{ item.decided_at }} 保存</small>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="submit-row">
+            <button type="submit" name="action" value="save" class="button">保存决定</button>
+            <button type="submit" name="action" value="keep_all" class="button">全部保留现状</button>
+          </div>
+        </form>
+      {% else %}
+        <p>本次预览没有需要人工决定的课次。</p>
+      {% endif %}
+
       {% if preview_warnings %}
         <h2 style="margin-top:20px">警告</h2>
         <p>警告不阻止提交，但需要教务人员确认依据。</p>
@@ -180,11 +302,13 @@
           <input type="submit" class="default" value="提交导入">
         </form>
         <p class="help">
-          提交前会在数据库锁内重新预览；若数据、任课范围或学期课表版本已变化，会要求重新预览。
+          提交前会在数据库锁内重新预览；若数据、决定项、任课范围或学期课表版本已变化，会要求重新预览。
         </p>
       </div>
     {% elif original.status == "uploaded" %}
       <p class="help">该批次需要重新预览后才能提交。</p>
+    {% elif undecided_count %}
+      <p class="help">请先处理全部人工决定项；存在未决定项时不能提交。</p>
     {% endif %}
   {% endif %}
 {% endblock %}

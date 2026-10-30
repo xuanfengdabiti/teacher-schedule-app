@@ -156,7 +156,7 @@ def generate_sessions_for_term(term: Term) -> GenerationResult:
         periods = {period.period_number: period for period in Period.objects.filter(term=locked_term)}
         exceptions = list(CalendarException.objects.filter(term=locked_term))
         rules = list(
-            ScheduleRule.objects.filter(offering__term=locked_term)
+            ScheduleRule.objects.filter(offering__term=locked_term, is_active=True)
             .select_related("offering")
             .prefetch_related("teachers")
         )

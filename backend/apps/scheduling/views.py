@@ -66,6 +66,7 @@ from apps.scheduling.serializers import (
     TermCalendarSerializer,
     TermSummarySerializer,
 )
+from apps.teaching.previous_notes import previous_note_previews
 
 
 def _authorised_teacher_or_403(request: Request, session: ClassSession) -> TeacherProfile:
@@ -425,13 +426,20 @@ class SessionListView(APIView):
             sessions = sessions.exclude(status=SessionStatus.CANCELLED)
         sessions = sessions.order_by("start_at", "offering__course__course_code", "id")
 
+        session_rows = list(sessions)
+        previews = previous_note_previews(teacher, session_rows)
         payload = {
             "from": date_from,
             "to": date_to,
             "term": term,
-            "results": sessions,
+            "results": session_rows,
         }
-        return Response(SessionListResponseSerializer(payload, context={"teacher": teacher}).data)
+        return Response(
+            SessionListResponseSerializer(
+                payload,
+                context={"teacher": teacher, "previous_note_previews": previews},
+            ).data
+        )
 
 
 class SessionDetailView(APIView):
@@ -447,10 +455,15 @@ class SessionDetailView(APIView):
         teacher = require_active_teacher(request.user)
         session = get_object_or_404(visible_sessions_for_read(teacher), pk=session_id)
         enrolled_count = len(active_student_ids(session.offering, session_local_date(session)))
+        previews = previous_note_previews(teacher, [session])
         return Response(
             SessionDetailSerializer(
                 session,
-                context={"teacher": teacher, "enrolled_count": enrolled_count},
+                context={
+                    "teacher": teacher,
+                    "enrolled_count": enrolled_count,
+                    "previous_note_previews": previews,
+                },
             ).data
         )
 

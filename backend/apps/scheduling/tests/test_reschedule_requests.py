@@ -939,17 +939,18 @@ class TestAdminActions:
         assert first.status_code == 200
         assert "登记调课审批结果" in first.content.decode()
 
-        second = client.post(
-            "/admin/scheduling/reschedulerequest/",
-            {
-                "action": "approve_requests",
-                "_selected_action": [str(request_obj.id)],
-                "index": "0",
-                "reschedule_confirm": "1",
-                "decision_ref": "",
-                "decision_note": "Admin 确认",
-            },
-        )
+        with patch("apps.scheduling.admin.timezone.now", return_value=NOW):
+            second = client.post(
+                "/admin/scheduling/reschedulerequest/",
+                {
+                    "action": "approve_requests",
+                    "_selected_action": [str(request_obj.id)],
+                    "index": "0",
+                    "reschedule_confirm": "1",
+                    "decision_ref": "",
+                    "decision_note": "Admin 确认",
+                },
+            )
         assert second.status_code == 302
         request_obj.refresh_from_db()
         assert request_obj.status == RescheduleStatus.APPROVED

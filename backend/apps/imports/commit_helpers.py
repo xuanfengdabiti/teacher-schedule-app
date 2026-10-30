@@ -13,7 +13,7 @@ from apps.imports.models import ImportBatch, ImportIdentity, ImportStatus
 from apps.imports.parsing import make_issue
 from apps.imports.projection.base import CommitResult, ImportObject, PreviewResult
 from apps.scheduling.changelog import ChangeEntry
-from apps.scheduling.models import ChangeEntityType, ClassSession, SessionStatus
+from apps.scheduling.models import ChangeEntityType
 
 
 def make_identity(batch: ImportBatch, obj: ImportObject, object_id: UUID) -> None:
@@ -68,36 +68,6 @@ def create_teaching_assignments(
             effective_from=term.start_date,
             effective_until=until,
         )
-
-
-def apply_generated_session_values(
-    *,
-    session: ClassSession,
-    desired: ClassSession,
-    actor,
-) -> bool:
-    update_fields: list[str] = []
-    for field_name in (
-        "status",
-        "status_reason",
-        "actual_hours",
-        "completed_by_teacher_id",
-        "completed_at",
-        "completion_ref",
-    ):
-        if getattr(session, field_name) != getattr(desired, field_name):
-            setattr(session, field_name, getattr(desired, field_name))
-            update_fields.append(field_name)
-    if session.status == SessionStatus.COMPLETED and desired.status == SessionStatus.COMPLETED:
-        if session.recorded_by_user_id != actor.pk:
-            session.recorded_by_user = actor
-            update_fields.append("recorded_by_user")
-    if not update_fields:
-        return False
-    session.version += 1
-    update_fields.extend(["version", "updated_at"])
-    session.save(update_fields=update_fields)
-    return True
 
 
 def assignment_teacher_ids(graph) -> set[UUID]:
@@ -192,15 +162,22 @@ def dedupe_issue_dicts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def stale_result(batch: ImportBatch, preview: PreviewResult, baseline_errors: list[dict]) -> CommitResult:
+def stale_result(
+    batch: ImportBatch,
+    preview: PreviewResult,
+    baseline_errors: list[dict],
+    *,
+    code: str = "PREVIEW_STALE",
+    message: str = "预览之后相关数据发生变化；请重新预览并确认，旧预览不能提交。",
+) -> CommitResult:
     stale = make_issue(
         file="",
         sheet="",
         row=0,
         field="",
         value="",
-        code="PREVIEW_STALE",
-        message="预览之后相关数据发生变化；请重新预览并确认，旧预览不能提交。",
+        code=code,
+        message=message,
     )
     batch.status = ImportStatus.UPLOADED
     batch.row_counts = preview.row_counts
@@ -224,7 +201,7 @@ def stale_result(batch: ImportBatch, preview: PreviewResult, baseline_errors: li
     return CommitResult(
         batch=batch,
         committed=False,
-        code="PREVIEW_STALE",
+        code=code,
         message=stale.message,
     )
 

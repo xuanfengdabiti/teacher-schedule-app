@@ -134,6 +134,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -202,6 +203,22 @@ USE_TZ = True
 # Decimal threshold.  Keep it a string here; the progress service parses it
 # with Decimal and rejects floats.
 PLAN_BEHIND_THRESHOLD_HOURS = os.environ.get("PLAN_BEHIND_THRESHOLD_HOURS", "2.0")
+
+# ---------------------------------------------------------------------------
+# AI lesson preparation (compatible chat completions endpoint)
+# ---------------------------------------------------------------------------
+# Empty key keeps the feature disabled with a readable error; ordinary
+# schedules, notes and plans keep working without any model configuration.
+TEACHING_AI_API_BASE_URL = os.environ.get(
+    "TEACHING_AI_API_BASE_URL",
+    "https://api.deepseek.com",
+)
+TEACHING_AI_MODEL = os.environ.get("TEACHING_AI_MODEL", "deepseek-flash")
+TEACHING_AI_API_KEY = os.environ.get("TEACHING_AI_API_KEY", "")
+try:
+    TEACHING_AI_TIMEOUT_SECONDS = float(os.environ.get("TEACHING_AI_TIMEOUT_SECONDS", "45"))
+except ValueError:
+    TEACHING_AI_TIMEOUT_SECONDS = 45.0
 
 # ---------------------------------------------------------------------------
 # rest framework & OpenAPI schema
@@ -280,6 +297,7 @@ SPECTACULAR_SETTINGS = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Imported source files live under a private local directory.  MEDIA_URL is
 # intentionally not configured or routed: Django Admin serves the audit view,

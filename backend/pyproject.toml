@@ -10,8 +10,11 @@ dependencies = [
     "djangorestframework>=3.18.3",
     "djangorestframework-simplejwt>=5.5.1",
     "drf-spectacular>=0.30.0",
+    "gunicorn>=26.2.0",
     "openpyxl>=3.1.5",
+    "pillow>=13.0.0",
     "psycopg[binary]>=3.0",
+    "whitenoise>=6.12.0",
 ]
 
 [dependency-groups]

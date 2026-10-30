@@ -64,6 +64,11 @@ class ScheduleRule(TimeStampedUUIDModel):
         decimal_places=1,
         validators=[MinValueValidator(Decimal("0"))],
     )
+    is_active = models.BooleanField(
+        _("启用"),
+        default=True,
+        help_text="snapshot 导入缺失的规则会停用；重新显式导入同一规则时恢复启用，历史课次保留。",
+    )
 
     class Meta:
         verbose_name = _("排课规则")
@@ -512,6 +517,11 @@ class RescheduleRequest(TimeStampedUUIDModel):
         return f"{self.session_id} -> {self.target_date} {self.get_status_display()}"
 
 
+class SessionChangeSource(models.TextChoices):
+    RESCHEDULE = "reschedule", _("调课审批")
+    IMPORT = "import", _("导入")
+
+
 class SessionChange(TimeStampedUUIDModel):
     """Immutable before/after snapshot of one formal session move.
 
@@ -536,6 +546,12 @@ class SessionChange(TimeStampedUUIDModel):
     session_version = models.PositiveIntegerField(_("变更后课次版本"))
     before_json = models.JSONField(_("变更前快照"))
     after_json = models.JSONField(_("变更后快照"))
+    source = models.CharField(
+        _("变更来源"),
+        max_length=16,
+        choices=SessionChangeSource.choices,
+        default=SessionChangeSource.RESCHEDULE,
+    )
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

@@ -17,7 +17,15 @@ from apps.common.models import TimeStampedUUIDModel
 
 
 class ImportMode(models.TextChoices):
+    """Import batch mode.
+
+    ``SNAPSHOT`` is persisted for the paused B12d work but is not offered in
+    Admin and is rejected at preview time: the scoped-missing handling is not
+    implemented yet, so a snapshot batch must never silently run as a merge.
+    """
+
     MERGE = "merge", _("增量合并")
+    SNAPSHOT = "snapshot", _("限定范围快照（未实现）")
 
 
 class ImportStatus(models.TextChoices):
@@ -25,6 +33,17 @@ class ImportStatus(models.TextChoices):
     PREVIEWED = "previewed", _("已预览")
     COMMITTED = "committed", _("已提交")
     FAILED = "failed", _("失败")
+
+
+class ImportDecisionKind(models.TextChoices):
+    TOUCHED = "touched_change", _("有教学记录或已调整")
+    CONFLICT = "conflict", _("目标时段有冲突")
+    COMPLETED = "completed_locked", _("已完成课次锁定")
+
+
+class ImportDecisionChoice(models.TextChoices):
+    KEEP_EXISTING = "keep_existing", _("保留现状")
+    APPLY_IMPORT = "apply_import", _("采用导入结果")
 
 
 class ImportBatch(TimeStampedUUIDModel):
@@ -49,6 +68,23 @@ class ImportBatch(TimeStampedUUIDModel):
         choices=ImportMode.choices,
         default=ImportMode.MERGE,
     )
+    scope_json = models.JSONField(_("快照范围"), default=dict, blank=True)
+    enrollment_end_date = models.DateField(
+        _("快照退课生效日期"),
+        null=True,
+        blank=True,
+        help_text="snapshot 模式下，缺失选课的生效结束日期（不含当天）。不能按上传日猜测。",
+    )
+    missing_confirmed_at = models.DateTimeField(_("缺失清单确认时间"), null=True, blank=True)
+    missing_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="confirmed_import_missing",
+        verbose_name=_("缺失清单确认人"),
+        null=True,
+        blank=True,
+    )
+    missing_signature = models.CharField(_("缺失清单指纹"), max_length=64, blank=True, default="")
     status = models.CharField(
         _("状态"),
         max_length=16,
@@ -90,11 +126,9 @@ class ImportBatch(TimeStampedUUIDModel):
         verbose_name_plural = _("导入批次")
         ordering = ("-created_at",)
         constraints = [
-            # B12b still commits merge batches only. Snapshot scope and
-            # missing-object decisions belong to B12c.
             models.CheckConstraint(
-                condition=models.Q(mode=ImportMode.MERGE),
-                name="imp_batch_mode_merge_only",
+                condition=models.Q(mode__in=[ImportMode.MERGE, ImportMode.SNAPSHOT]),
+                name="imp_batch_mode_valid",
             ),
         ]
         indexes = [
@@ -157,3 +191,91 @@ class ImportIdentity(TimeStampedUUIDModel):
 
     def __str__(self) -> str:
         return f"{self.entity_type}:{self.external_id} -> {self.object_id}"
+
+
+class ImportDecision(TimeStampedUUIDModel):
+    """One session the preview could not change without academic approval.
+
+    The row is preview data: a re-preview rebuilds the set, preserving a choice
+    only while the proposed/current states remain identical.  It never writes
+    ``ClassSession`` itself; commit applies an ``apply_import`` choice through
+    the scheduling change service.
+    """
+
+    batch = models.ForeignKey(
+        ImportBatch,
+        on_delete=models.CASCADE,
+        related_name="decisions",
+        verbose_name=_("导入批次"),
+    )
+    session = models.ForeignKey(
+        "scheduling.ClassSession",
+        on_delete=models.PROTECT,
+        related_name="import_decisions",
+        verbose_name=_("课次"),
+    )
+    kind = models.CharField(_("决定类型"), max_length=24, choices=ImportDecisionKind.choices)
+    proposed_json = models.JSONField(_("导入希望的结果"), default=dict)
+    current_json = models.JSONField(_("现状"), default=dict)
+    reason = models.TextField(_("原因"))
+    options = models.JSONField(_("可选动作"), default=list)
+    choice = models.CharField(
+        _("教务选择"),
+        max_length=24,
+        choices=ImportDecisionChoice.choices,
+        blank=True,
+        default="",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="import_decisions",
+        verbose_name=_("决定人"),
+        null=True,
+        blank=True,
+    )
+    decided_at = models.DateTimeField(_("决定时间"), null=True, blank=True)
+    note = models.TextField(_("依据说明"), blank=True, default="")
+
+    class Meta:
+        verbose_name = _("导入人工决定项")
+        verbose_name_plural = _("导入人工决定项")
+        ordering = ("batch", "created_at", "id")
+        constraints = [
+            models.UniqueConstraint(fields=["batch", "session"], name="imp_decision_batch_session_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["batch", "choice"], name="imp_decision_batch_choice_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.batch_id} / {self.session_id} ({self.kind})"
+
+    @property
+    def is_decided(self) -> bool:
+        return bool(self.choice)
+
+    @property
+    def proposed_display(self) -> str:
+        return format_import_state(self.proposed_json)
+
+    @property
+    def current_display(self) -> str:
+        return format_import_state(self.current_json)
+
+
+def format_import_state(state: dict) -> str:
+    """Readable one-line state for the Admin decision list."""
+    if not state:
+        return "—"
+    parts = [
+        f"{state.get('date', '—')} 第 {state.get('start_period', '—')}–{state.get('end_period', '—')} 节",
+        f"{state.get('start_time', '—')}–{state.get('end_time', '—')}",
+        f"教室 {state.get('classroom_code', '—')}",
+        f"教师 {'|'.join(state.get('teacher_codes') or []) or '—'}",
+        f"{state.get('status_label', state.get('status', '—'))}",
+        f"计划 {state.get('planned_hours', '—')} 学时",
+    ]
+    if state.get("actual_hours") is not None:
+        parts.append(f"实际 {state['actual_hours']} 学时")
+    return "；".join(parts)

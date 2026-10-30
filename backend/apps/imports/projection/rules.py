@@ -53,6 +53,16 @@ def build_rules(ctx: BuildContext) -> None:
         if classroom is None:
             ctx.add_issue(issue_for(row, "classroom_code", "FK_NOT_FOUND", f"教室 {classroom_code} 不存在。"))
             continue
+        if classroom.school_id != term.school_id:
+            ctx.add_issue(
+                issue_for(
+                    row,
+                    "classroom_code",
+                    "CLASSROOM_SCHOOL_MISMATCH",
+                    "教室必须与学期属于同一学校。",
+                )
+            )
+            continue
 
         weeks = list(row.values.get("weeks") or [])
         invalid_weeks = [week for week in weeks if not 1 <= week <= (term.teaching_week_count or 0)]
@@ -127,13 +137,20 @@ def build_rules(ctx: BuildContext) -> None:
         )
         identity = ctx.existing.identity(ENTITY_RULE, rule_code)
         target = ctx.existing.target(ENTITY_RULE, rule_code) if identity else None
-        differences = []
+        unsupported: list[FieldDifference] = []
+        updates: list[FieldDifference] = []
         if isinstance(target, ScheduleRule):
-            differences = diff_fields(
+            unsupported = diff_fields(
                 target,
                 {
                     "offering_id": data.offering_id,
                     "rule_code": data.rule_code,
+                },
+                ["offering_id", "rule_code"],
+            )
+            updates = diff_fields(
+                target,
+                {
                     "weekday": data.weekday,
                     "start_period": data.start_period,
                     "end_period": data.end_period,
@@ -142,8 +159,6 @@ def build_rules(ctx: BuildContext) -> None:
                     "planned_hours": data.planned_hours,
                 },
                 [
-                    "offering_id",
-                    "rule_code",
                     "weekday",
                     "start_period",
                     "end_period",
@@ -154,7 +169,7 @@ def build_rules(ctx: BuildContext) -> None:
             )
             actual_teacher_ids = {teacher_id for teacher_id in target.teachers.values_list("id", flat=True)}
             if set(teacher_ids) != actual_teacher_ids:
-                differences.append(
+                updates.append(
                     FieldDifference(
                         field="teacher_codes",
                         expected="|".join(sorted(teacher_codes)),
@@ -174,7 +189,8 @@ def build_rules(ctx: BuildContext) -> None:
             data=data,
             rows=[row],
             natural=natural,
-            differences=differences,
+            differences=unsupported,
+            updates=updates,
         )
         obj.metadata["teacher_ids"] = teacher_ids
         obj.metadata["teacher_codes"] = teacher_codes

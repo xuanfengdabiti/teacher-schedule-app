@@ -659,28 +659,11 @@ def test_room_and_person_block_time_updates_are_mergeable(school, academic_staff
     ("file_name", "mutate"),
     [
         ("terms.csv", lambda rows: rows[1].__setitem__(2, "2026-09-08")),
-        (
-            "rules.csv",
-            lambda rows: rows[1].__setitem__(6, "1|2|3|5|7|9|11|13|15|17|19"),
-        ),
-        ("periods.csv", lambda rows: rows[1].__setitem__(2, "08:01")),
-        (
-            "calendar_exceptions.csv",
-            lambda rows: rows.append(
-                [
-                    "CAL-NEW",
-                    TERM_CODE,
-                    "2026-11-02",
-                    "cancel",
-                    "",
-                    "新增校历例外会改变已有课次",
-                ]
-            ),
-        ),
-        ("sessions.csv", lambda rows: rows[1].__setitem__(11, "B201")),
+        ("terms.csv", lambda rows: rows[1].__setitem__(3, "2027-01-25")),
+        ("terms.csv", lambda rows: rows[1].__setitem__(4, "2026-09-14")),
     ],
 )
-def test_schedule_affecting_changes_are_rejected(
+def test_term_structure_changes_are_rejected(
     school,
     academic_staff,
     tmp_path,

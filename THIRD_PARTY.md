@@ -1,10 +1,14 @@
 # 第三方复用记录
 
-截至 2026-10-27，本仓库包含项目文档、配置与虚构模板，以及 `backend/` 的后端工程：教务数据模型、课次生成/调课候选、B12a/B12b CSV/XLSX 导入与基础资料增量，以及账号/JWT、教师身份关联和 `me` 的后端切片。未复制第三方 App 源码；候选及其许可证核查见[开源调研](docs/open-source-research.md)。
+截至 2026-10-27，本仓库包含 Django 后端、Flutter 移动端、本地演示启动脚本与虚构模板。优先使用成熟包实现账号、网络、存储、路由、管理后台与表格读取；教师业务按本项目接口实现。未复制第三方 App 源码；候选及其许可证核查见[开源调研](docs/open-source-research.md)。
+
+空教室查询复用既有 Django ORM、课次/教室占用/数据覆盖选择器和 Flutter Material 日期、时间控件，未新增第三方依赖或数据库表。
+
+2026-10-28 的个人资料、修改密码与字号功能继续复用已引入的 Flutter Material、Riverpod、Dio、SharedPreferences 及 dj-rest-auth/allauth 账号接口。字号使用 Flutter 自带 MediaQuery/TextScaler，不引入新的表单、设置或认证库，不复制第三方源码；许可证与锁定版本沿用下表。
 
 ## 默认候选
 
-Flutter、Riverpod、go_router、Dio、Drift、flutter_secure_storage、calendar_view（待适配验证）、flutter_local_notifications 仍处于计划选型阶段；远程推送采用个推官方 Flutter 插件候选，服务条款和费用单独确认。后端已实际引入的包见下表，未运行 Flutter 构建、真实 SMTP 或推送链路验证。
+Flutter、Riverpod、go_router、Dio、flutter_secure_storage 与 SharedPreferences 已实际使用并完成 Android APK 构建。Drift、calendar_view、flutter_local_notifications 与个推插件仍只是原方案候选，未引入当前本地演示版。真实 SMTP、远程推送与 iOS 构建不在本次验收范围。
 
 这些候选选择不表示已完成双端兼容性构建、接入了真实学校数据或获有任何商用服务额度。
 
@@ -22,7 +26,10 @@ Flutter、Riverpod、go_router、Dio、Drift、flutter_secure_storage、calendar
 | django-allauth | https://github.com/pennersr/django-allauth | 65.20.1 | MIT | uv，`socialaccount` extra | 邮箱账号、验证邮件、密码重置流程 |
 | djangorestframework-simplejwt | https://github.com/jazzband/djangorestframework-simplejwt | 5.5.1 | MIT | uv | JWT access/refresh 与 blacklist |
 | drf-spectacular | https://github.com/tfranzel/drf-spectacular | 0.30.0 | BSD-3-Clause | uv | OpenAPI schema 生成 |
+| Gunicorn | https://github.com/benoitc/gunicorn | 26.2.0 | MIT | uv | 演示容器内运行 Django |
+| WhiteNoise | https://github.com/evansd/whitenoise | 6.12.0 | MIT | uv | Django Admin 静态文件 |
 | openpyxl | https://openpyxl.readthedocs.io/ | 3.1.5 | MIT | uv | B12a/B12b XLSX 只读解析（`read_only=True, data_only=False`） |
+| Pillow | https://python-pillow.org/ | 13.0.0 | MIT-CMU（HPND） | uv | Django/DRF `ImageField` 的头像图片解码与格式校验；不做图像识别 |
 | psycopg | https://psycopg.org/ | 3.3.6 | LGPL-3.0-only | uv | PostgreSQL 数据库适配器 |
 | psycopg-binary | https://psycopg.org/ | 3.3.6 | LGPL-3.0-only | uv | psycopg 的二进制分发（避免需要编译 libpq） |
 
@@ -40,4 +47,32 @@ allauth SocialAccount 的导入依赖；项目未配置社交登录提供商，�
 
 普通包依赖锁版本；复制源码另记原文件路径、修改范围，保留版权和 NOTICE。无明确许可证的仓库不复制；GPL 候选当前仅作产品参考，若未来选其源码需明确项目许可证与分发方式。
 
+### 移动端实际依赖
+
+本机验收使用 Flutter 3.47.8 / Dart 3.13.7。以下版本以 `mobile/pubspec.lock` 为准；许可证核对本机下载包的 LICENSE，传递依赖由锁文件记录。
+
+| 名称 | 来源 URL | 锁定版本 | 许可证 | 用途 |
+| --- | --- | --- | --- | --- |
+| Flutter | https://github.com/flutter/flutter | 3.47.8 | BSD-3-Clause | Android/iOS UI 框架 |
+| flutter_riverpod | https://pub.dev/packages/flutter_riverpod | 3.4.3 | MIT | 页面状态与依赖管理 |
+| go_router | https://pub.dev/packages/go_router | 18.1.1 | BSD-3-Clause | 页面路由 |
+| dio | https://pub.dev/packages/dio | 5.11.1 | MIT | API 网络请求 |
+| flutter_secure_storage | https://pub.dev/packages/flutter_secure_storage | 11.2.0 | BSD-3-Clause | 登录信息保存 |
+| shared_preferences | https://pub.dev/packages/shared_preferences | 2.5.6 | BSD-3-Clause | 设置与小型本地草稿 |
+| intl | https://pub.dev/packages/intl | 0.20.3 | BSD-3-Clause | 日期与本地化 |
+| cupertino_icons | https://pub.dev/packages/cupertino_icons | 1.0.9 | MIT | 图标 |
+| flutter_lints | https://pub.dev/packages/flutter_lints | 6.0.0 | BSD-3-Clause | 开发时静态检查规则 |
+
 App 发布时提供“开源许可”页和相应第三方声明。当前项目本身的许可证尚未由作者选定，公开可读不等于已按 MIT 等协议授权。
+
+## AI 备课复用记录（2026-10-28）
+
+AI 文字生成复用 [DeepSeek 的兼容 chat completions 接口](https://api-docs.deepseek.com/)和 [JSON 输出合同](https://api-docs.deepseek.com/guides/json_mode/)，本机可配置兼容服务与模型名。外部模型为远程服务，不复制模型源码或权重，其服务使用条件由所配置供应商约定；无需为此另加 SDK。后端沿用 Python 标准库 `urllib` / `json`（PSF 许可）完成一次请求，移动端沿用上表已有 Dio / Flutter Material 组件。只自写课程上下文组装、教学提示词和备课保存业务，无新增包依赖。
+
+## 手机安装与基础功能复用（2026-10-29）
+
+新增 [image_picker 1.2.4](https://pub.dev/packages/image_picker)（Flutter 官方，BSD-3-Clause / Apache-2.0）用于系统相册与头像尺寸调整，[flutter_local_notifications 22.3.3](https://pub.dev/packages/flutter_local_notifications)（BSD-3-Clause）用于 Android 本地上课提醒，以及 [timezone 0.11.2](https://pub.dev/packages/timezone)（BSD-3-Clause）用于按学校时区调度。复用既有头像、课程和偏好接口，避免自写相册选择器、通知 SDK 或重复认证系统。配置、适配范围与验收见[手机联网演示](docs/phone-demo.md)，实际版本由 `mobile/pubspec.lock` 锁定。
+
+## 本地录屏外壳素材
+
+2026-10-27 的本机演示使用 [Hoverify 自绘的 iPhone 17 Pro Max 银色外框](https://tryhoverify.com/tools/device-frames/iphone-17-pro-max/)。[素材许可](https://tryhoverify.com/tools/device-frames/license/)允许免费用于个人、商业演示视频及成品截图，无需署名；禁止重新分发外框文件，或将其集成到供他人套图的工具。素材与 Emulator skin 适配仅保存在本机 Android SDK 的 `skins/iphone_17_pro_max_silver`，不提交仓库、不打包进 App，也不新增运行时依赖。外壳仅用于录屏展示，不代表已完成 iOS 构建或验收。

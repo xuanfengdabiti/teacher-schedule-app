@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.utils.translation import gettext_lazy as _
 
 from .forms import UserChangeForm, UserCreationForm
-from .models import TeacherClaim, TeacherClaimStatus, User
+from .models import TeacherClaim, TeacherClaimStatus, User, UserPreferences
 from .services import TeacherLinkError, link_user_to_profile, reject_teacher_claim
 
 
@@ -121,3 +121,39 @@ class TeacherClaimAdmin(admin.ModelAdmin):
                 )
                 continue
             self.message_user(request, f"{claim}：已驳回。", level=messages.SUCCESS)
+
+
+@admin.register(UserPreferences)
+class UserPreferencesAdmin(admin.ModelAdmin):
+    """Inspection only: teachers change their own settings through the API."""
+
+    list_display = (
+        "user",
+        "font_size",
+        "local_reminder_enabled",
+        "local_reminder_minutes",
+        "preferred_term",
+        "push_enabled",
+        "updated_at",
+    )
+    list_filter = ("font_size", "local_reminder_enabled", "push_enabled")
+    search_fields = ("user__email",)
+    list_select_related = ("user", "preferred_term")
+    readonly_fields = (
+        "font_size",
+        "local_reminder_enabled",
+        "local_reminder_minutes",
+        "preferred_term",
+        "push_enabled",
+        "push_schedule_changed",
+        "push_handoff",
+        "push_inquiry",
+        "push_plan",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False

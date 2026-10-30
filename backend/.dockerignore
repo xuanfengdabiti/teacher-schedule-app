@@ -1,0 +1,41 @@
+# Build context: backend/
+# Keep the image small and avoid leaking local secrets or school data.
+
+# Local config and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Virtualenv / caches / test artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Private uploads and local runtime state
+var/
+media/
+uploads/
+backups/
+*.sqlite3
+*.dump
+*.log
+
+# VCS and editors
+.git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local documentation/tooling that does not affect runtime
+README.md

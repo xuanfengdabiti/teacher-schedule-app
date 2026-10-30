@@ -12,6 +12,7 @@ from apps.teaching.handoff_views import (
     HandoffReadView,
     HandoffWithdrawView,
 )
+from apps.teaching.preparation_views import PreparationGenerateView, PreparationView
 from apps.teaching.progress_views import OfferingPlanView, SessionCompletionView
 from apps.teaching.views import MyNotePublishView, MyNoteView, SessionNotesView
 
@@ -23,6 +24,12 @@ urlpatterns = [
         name="session-completion",
     ),
     path("sessions/<uuid:session_id>/notes/", SessionNotesView.as_view(), name="session-notes"),
+    path("sessions/<uuid:session_id>/preparation/", PreparationView.as_view(), name="session-preparation"),
+    path(
+        "sessions/<uuid:session_id>/preparation/generate/",
+        PreparationGenerateView.as_view(),
+        name="session-preparation-generate",
+    ),
     path("sessions/<uuid:session_id>/notes/mine/", MyNoteView.as_view(), name="session-note-mine"),
     path(
         "sessions/<uuid:session_id>/notes/mine/publish/",

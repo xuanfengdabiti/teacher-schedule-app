@@ -44,6 +44,7 @@ from apps.scheduling.sync_serializers import (
     SyncChangesResponseSerializer,
 )
 from apps.teaching.models import TeachingNote
+from apps.teaching.previous_notes import previous_note_previews
 from apps.teaching.selectors import readable_notes_for_term, readable_notes_queryset
 from apps.teaching.serializers import sync_note_payload
 
@@ -104,7 +105,10 @@ def build_bootstrap_payload(teacher: TeacherProfile) -> dict:
             session_data = SessionSummarySerializer(
                 sessions,
                 many=True,
-                context={"teacher": teacher},
+                context={
+                    "teacher": teacher,
+                    "previous_note_previews": previous_note_previews(teacher, sessions),
+                },
             ).data
             note_data = [sync_note_payload(note, teacher) for note in readable_notes_for_term(teacher, term)]
             tzinfo = term.tzinfo
@@ -156,10 +160,14 @@ def _session_data_for_logs(
     active_logs = [log for log in logs if not log.tombstone]
     if active_logs:
         visible_sessions = visible_sessions_for_read(teacher).filter(pk__in=[log.entity_id for log in active_logs])
+        session_rows = list(visible_sessions)
         serialized = SessionSummarySerializer(
-            list(visible_sessions),
+            session_rows,
             many=True,
-            context={"teacher": teacher},
+            context={
+                "teacher": teacher,
+                "previous_note_previews": previous_note_previews(teacher, session_rows),
+            },
         ).data
         by_id = {str(item["id"]): item for item in serialized}
     else:

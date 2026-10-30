@@ -14,16 +14,22 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Prefetch, Q
+from django.utils import timezone
 
 from apps.academics.contacts import ContactVisibilityResolver, teacher_name
 from apps.academics.models import Term
 from apps.classrooms.models import Classroom, RoomBlock
 from apps.scheduling.models import ClassSession, SessionChange, SessionStatus, SessionTeacher
-from apps.scheduling.reschedule_options import classroom_day_coverage_complete
+from apps.scheduling.reschedule_options import (
+    classroom_codes_coverage_complete,
+    classroom_day_coverage_complete,
+)
 
 USAGE_NOTICE = "排定课程记录，不代表实际到场或物品去向。"
 DATA_COMPLETE = "complete"
 DATA_INCOMPLETE = "incomplete"
+AVAILABILITY_AVAILABLE = "available"
+AVAILABILITY_UNVERIFIED = "unverified"
 
 ENTRY_SESSION = "session"
 ENTRY_CANCELLED_SESSION = "cancelled_session"
@@ -47,7 +53,9 @@ def classrooms_for_school(
     """Return the school's rooms in stable campus/building/room order."""
     queryset = Classroom.objects.filter(school_id=school_id)
     if q:
-        queryset = queryset.filter(Q(classroom_code__icontains=q) | Q(building__icontains=q) | Q(room_no__icontains=q))
+        queryset = queryset.filter(
+            Q(classroom_code__icontains=q) | Q(campus__icontains=q) | Q(building__icontains=q) | Q(room_no__icontains=q)
+        )
     if campus:
         queryset = queryset.filter(campus=campus)
     if building:
@@ -73,6 +81,106 @@ def _term_for_day(school_id, day: date) -> Term | None:
         Term.objects.filter(school_id=school_id, start_date__lte=day, end_date__gte=day)
         .order_by("-start_date", "-code")
         .first()
+    )
+
+
+@dataclass(frozen=True)
+class FreeClassroom:
+    classroom: Classroom
+    availability: str
+    data_completeness: str
+
+
+@dataclass(frozen=True)
+class FreeClassroomResult:
+    day: date
+    start_time: time
+    end_time: time
+    checked_at: datetime
+    available_count: int
+    unverified_count: int
+    items: tuple[FreeClassroom, ...]
+
+
+def free_classrooms_for_school(
+    school_id,
+    *,
+    day: date,
+    start_time: time,
+    end_time: time,
+    q: str = "",
+    campus: str = "",
+    building: str = "",
+    min_capacity: int | None = None,
+    now: datetime | None = None,
+) -> FreeClassroomResult:
+    """Rooms without a known overlap in ``[start, end)`` on one local day.
+
+    All occupancy and coverage is fetched in batches; the query count does not
+    grow with the number of rooms.  ``available`` means the coverage contract
+    proves the room schedule and room blocks are complete for that day;
+    otherwise the room is ``unverified`` and must not be presented as free.
+    """
+    term = _term_for_day(school_id, day)
+    tzinfo = term.tzinfo if term is not None else ZoneInfo(settings.TIME_ZONE)
+    start_at = datetime.combine(day, start_time, tzinfo=tzinfo)
+    end_at = datetime.combine(day, end_time, tzinfo=tzinfo)
+
+    queryset = classrooms_for_school(
+        school_id,
+        q=q,
+        campus=campus,
+        building=building,
+    ).filter(is_active=True)
+    if min_capacity is not None:
+        queryset = queryset.filter(capacity__gte=min_capacity)
+    rooms = list(queryset)
+    room_ids = [room.id for room in rooms]
+
+    occupied_ids: set = set()
+    if room_ids:
+        occupied_ids.update(
+            ClassSession.objects.filter(
+                classroom_id__in=room_ids,
+                start_at__lt=end_at,
+                end_at__gt=start_at,
+            )
+            .exclude(status=SessionStatus.CANCELLED)
+            .values_list("classroom_id", flat=True)
+        )
+        occupied_ids.update(
+            RoomBlock.objects.filter(
+                classroom_id__in=room_ids,
+                start_at__lt=end_at,
+                end_at__gt=start_at,
+            ).values_list("classroom_id", flat=True)
+        )
+
+    free_rooms = [room for room in rooms if room.id not in occupied_ids]
+    completeness = classroom_codes_coverage_complete(
+        school_id=school_id,
+        classroom_codes=[room.classroom_code for room in free_rooms],
+        day=day,
+    )
+    items: list[FreeClassroom] = []
+    for room in free_rooms:
+        complete = completeness.get(room.classroom_code, False)
+        items.append(
+            FreeClassroom(
+                classroom=room,
+                availability=AVAILABILITY_AVAILABLE if complete else AVAILABILITY_UNVERIFIED,
+                data_completeness=DATA_COMPLETE if complete else DATA_INCOMPLETE,
+            )
+        )
+    available_count = sum(1 for item in items if item.availability == AVAILABILITY_AVAILABLE)
+    return FreeClassroomResult(
+        day=day,
+        start_time=start_time,
+        end_time=end_time,
+        checked_at=now or timezone.now(),
+        available_count=available_count,
+        unverified_count=len(items) - available_count,
+        items=tuple(items),
     )
 
 

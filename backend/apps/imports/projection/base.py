@@ -179,6 +179,7 @@ class PreviewResult:
     school_date: date
     change_summary: dict[str, Any]
     fingerprint: str
+    reconciliation: Any = None
 
     @property
     def errors(self) -> list[dict[str, Any]]:
@@ -205,6 +206,11 @@ class CommitResult:
     sessions_matched: int = 0
     sessions_changed: int = 0
     unchanged: int = 0
+    sessions_new: int = 0
+    sessions_cancelled: int = 0
+    sessions_restored: int = 0
+    decisions_kept: int = 0
+    decisions_applied: int = 0
 
 
 class ImportCommitError(Exception):
@@ -265,8 +271,8 @@ def difference_issue(row: ParsedRow, difference: FieldDifference) -> ImportIssue
         "CHANGE_NOT_SUPPORTED_YET",
         (
             f"数据库字段 {difference.field} 的当前值为“{display(difference.actual)}”，"
-            f"本批次为“{display(difference.expected)}”。该字段不在 B12b 允许的基础资料"
-            "增量更新表内，整批不能提交；会影响课表的变更留待 B12c。"
+            f"本批次为“{display(difference.expected)}”。该字段属于学期结构性设置，"
+            "增量导入不支持修改；需要新建学期或由教务人员手工处理。"
         ),
         value=difference.expected,
     )
@@ -343,6 +349,21 @@ class ExistingLookup:
         return self.targets.get(identity_key(entity_type, external_id))
 
 
+@dataclass(frozen=True)
+class DeferredAssignmentCheck:
+    """A teacher being removed from an offering who still has future sessions.
+
+    The offering projection cannot decide this alone: a rule change in the same
+    batch may reassign every one of those sessions.  The check is therefore
+    deferred until the session targets are known (B12c).
+    """
+
+    teacher_id: UUID
+    teacher_no: str
+    offering_id: UUID
+    row: ParsedRow
+
+
 @dataclass
 class BuildContext:
     batch: ImportBatch
@@ -350,6 +371,7 @@ class BuildContext:
     existing: ExistingLookup
     graph: ImportGraph
     issues: list[ImportIssue]
+    deferred_assignment_checks: list[DeferredAssignmentCheck] = field(default_factory=list)
 
     def add_issue(self, issue: ImportIssue) -> None:
         self.issues.append(issue)

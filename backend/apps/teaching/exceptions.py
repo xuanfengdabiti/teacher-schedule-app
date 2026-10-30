@@ -295,3 +295,85 @@ def allocation_exceeds(total: Any, limit: Any) -> TeachingProgressError:
         field_errors={"allocations": [f"合计不能超过本课次实际学时 {limit_text}。"]},
         extra={"allocation_total": total_text, "session_actual_hours": limit_text},
     )
+
+
+class LessonPreparationError(Exception):
+    """Business failures for the AI lesson-preparation slice."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        detail: str,
+        status_code: int,
+        field_errors: dict[str, list[str]] | None = None,
+        current: dict[str, Any] | None = None,
+        include_current: bool = False,
+    ) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.status_code = status_code
+        self.field_errors = field_errors or {}
+        self.current = current
+        self.include_current = include_current
+
+    def as_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "code": self.code,
+            "detail": self.detail,
+            "field_errors": self.field_errors,
+        }
+        if self.include_current:
+            payload["current"] = self.current
+        return payload
+
+
+def lesson_ai_not_configured() -> LessonPreparationError:
+    return LessonPreparationError(
+        code="AI_NOT_CONFIGURED",
+        detail="AI 备课尚未配置，请先完成配置后再试。",
+        status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+    )
+
+
+def lesson_ai_unavailable() -> LessonPreparationError:
+    return LessonPreparationError(
+        code="AI_UNAVAILABLE",
+        detail="AI 服务暂时不可用，请稍后重试。",
+        status_code=HTTPStatus.BAD_GATEWAY,
+    )
+
+
+def lesson_ai_timeout() -> LessonPreparationError:
+    return LessonPreparationError(
+        code="AI_TIMEOUT",
+        detail="AI 生成超时，请稍后重试。",
+        status_code=HTTPStatus.GATEWAY_TIMEOUT,
+    )
+
+
+def lesson_ai_request_failed() -> LessonPreparationError:
+    return LessonPreparationError(
+        code="AI_REQUEST_FAILED",
+        detail="AI 服务未能完成这次生成，请稍后再试。",
+        status_code=HTTPStatus.BAD_GATEWAY,
+    )
+
+
+def lesson_ai_invalid_response() -> LessonPreparationError:
+    return LessonPreparationError(
+        code="AI_INVALID_RESPONSE",
+        detail="AI 返回的内容不完整，请重试。",
+        status_code=HTTPStatus.BAD_GATEWAY,
+    )
+
+
+def preparation_version_conflict(current: dict[str, Any] | None) -> LessonPreparationError:
+    return LessonPreparationError(
+        code="PREPARATION_VERSION_CONFLICT",
+        detail="备课草稿已在其他设备更新，请重新读取后再保存。",
+        status_code=HTTPStatus.CONFLICT,
+        current=current,
+        include_current=True,
+    )
