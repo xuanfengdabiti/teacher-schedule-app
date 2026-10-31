@@ -6,10 +6,11 @@
 
 蓝白界面[预览版 1.2.0](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)已迁移到北京服务器，覆盖安装会自动更新旧香港地址并保留登录与导入记录。默认字号提高 15%，单击课程卡打开操作菜单，整周课表用双指缩放；[界面验收](docs/blue-ui-preview.md) · [迁移核对](docs/beijing-migration.md)。原版 1.1.0 继续保留，预览版不替换其发布资产。
 
-Flutter 四核心（课表与调课、备注与交接、计划与学时、教室与失物）与 Django 后端已可本地运行，当前含 37 门课、13 位教师、30 间教室、878 名虚构学生和 1440 个课次。校区为团河校区、木犀校区，楼宇为历警楼、慧警楼、高警察楼，房号为三位数。李、张、王三位老师周一到周五均有课程，整周视图可直接演示。
+Flutter 四核心（课表与调课、备注与交接、计划与学时、教室与失物）与 Django 后端已可本地运行，基础虚构数据含 37 门课、13 位教师、30 间教室、878 名学生和 1440 个常规课次；北京环境为 2026-10-31 录制另补 9 个课次。校区为团河校区、木犀校区，楼宇为历警楼、慧警楼、高警察楼，房号为三位数。李、张、王三位老师周一到周五均有课程，整周视图可直接演示。
 
 - 一键启动与账号说明：[docs/local-demo.md](docs/local-demo.md)（`pwsh scripts/start-demo.ps1`）
 - 实际验收与截图：[docs/local-demo-acceptance.md](docs/local-demo-acceptance.md)
+- 10月31日录制数据：[录制日说明](docs/demo-recording-day.md)。教师甲当天 3 门课均有短备注，首课已登记 2 学时，课程进度为 24/80、22/80、22/80；原安装包刷新即可看到。
 - 手机联网环境、安装与基础功能补齐：[docs/phone-demo.md](docs/phone-demo.md)。当前北京地址为 `http://101.201.48.132/api/v1/`，手机不依赖电脑局域网；香港旧地址保留转发。
 - [当前 APK 下载（蓝白预览版）](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/download/v1.2.0-preview.4/teacher-schedule-v1.2.0-preview.4-android.apk)（[发布说明](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.2.0-preview.4)、[北京备用下载](http://101.201.48.132/teacher-schedule.apk)），Android 1.2.0（6），140 项 Flutter 测试通过。[1.1.0 原版](https://github.com/xuanfengdabiti/teacher-schedule-app/releases/tag/v1.1.0)仍可下载。
 - APK：`mobile/build/app/outputs/flutter-apk/app-release.apk`（约 46 MB，Android ARM64 / x64）
